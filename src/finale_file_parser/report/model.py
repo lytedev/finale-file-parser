@@ -720,7 +720,7 @@ def _musx_key(record: Record, index: int) -> str:
 
 def _attr_int(value: object) -> int | None:
     """An attribute as an int, or None when it is not one. Absence is ordinary
-    here -- `tupletDef` carries no `inci` at all -- and never an error."""
+    here -- a `.musx` `tupletDef` may carry no `inci` at all -- and never an error."""
     try:
         return int(str(value))
     except (TypeError, ValueError):
@@ -767,10 +767,10 @@ def _mus_reference_targets(
 
     An `inci` is matched first and only then fallen back on, because it means
     different things per tag: `articAssign` carries the raw row's incidence and
-    joins exactly, `tupletDef` carries none, and `lyrDataVerse` carries a
-    per-entry verse counter `mus_document` invents, which is not an incidence
-    at all and finds nothing. A record with no row is left out entirely rather
-    than pointed at a neighbour.
+    joins exactly, while `tupletDef` and `lyrDataVerse` carry a per-entry
+    counter `mus_document` invents as it splits one raw record into several,
+    which is not an incidence and may find nothing or the same row. A record
+    with no row is left out entirely rather than pointed at a neighbour.
     """
     by_inci, by_entry = _mus_entry_rows(details)
     targets: dict[tuple[str, str], tuple[str, str]] = {}

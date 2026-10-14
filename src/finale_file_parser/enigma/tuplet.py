@@ -73,6 +73,11 @@ class Tuplet:
         """Written EDU the tuplet covers, starting at the entry it is defined on."""
         return self.symbolic_number * self.symbolic_duration
 
+    @property
+    def reference_total(self) -> int:
+        """Written EDU of the time the tuplet occupies: 2 x 512 for an eighth triplet."""
+        return self.reference_number * self.reference_duration
+
 
 @dataclass(frozen=True)
 class EntryChain:
@@ -166,18 +171,31 @@ def sounded_durations(
 ) -> dict[int, Fraction]:
     """Sounded duration in EDU for every entry in `chain`.
 
-    Zero for a grace note. Otherwise the written duration outside any tuplet, or
-    inside one, the written duration times the tuplet's ratio; nested tuplets
-    multiply, which is why the ratio is accumulated over all tuplets in force
-    rather than only the innermost.
+    Zero for a grace note. Otherwise the written duration times the ratio of
+    every tuplet in force, since nested tuplets multiply.
 
-    A tuplet covers written time, not a number of entries, so its extent is found
-    by accumulating written durations from its starting entry until its span is
-    consumed. Counting entries instead would break on any tuplet whose notes are
-    not all the same length.
+    **A tuplet's span is consumed at its own nesting level.** An entry's written
+    duration counts only against the innermost tuplet in force; when that one
+    completes, the tuplet enclosing it consumes the inner one's *reference*
+    duration. A 16th triplet inside an eighth triplet therefore uses up one
+    eighth of the outer span, not the three 16ths it writes. Counting written
+    time against every level ran the outer triplet on past its notes: in
+    *Undertale - Mysterious Place* every measure of two staves sounded 5,746 EDU
+    against a 4,096-EDU bar.
+
+    The rest follows the musx object model's `createEntryFrame`
+    (https://github.com/rpatters1/musx-object-model/blob/deda69c1a8622c4268000f8c3e8df460ddef41a8/src/musx/dom/Entries.cpp#L2547-L2720):
+
+    * tuplets starting on the same entry open longest display duration first,
+      then longest reference duration, so the enclosing one is outermost;
+    * a tuplet also completes once the time sounded inside it reaches its
+      reference duration scaled by every enclosing ratio;
+    * the entry that completes a tuplet ends exactly where the tuplet does, so
+      rounding or an uneven fill inside one cannot drift the rest of the chain.
     """
-    active: list[tuple[Fraction, int]] = []  # (ratio, remaining written EDU)
+    open_tuplets: list[_OpenTuplet] = []
     out: dict[int, Fraction] = {}
+    elapsed = Fraction(0)
 
     for entnum in chain.order:
         written = chain.written_edu.get(entnum)
@@ -186,22 +204,56 @@ def sounded_durations(
         if entnum in chain.grace_notes:
             out[entnum] = Fraction(0)
             continue
-        for tuplet in tuplets.get(entnum, ()):
-            active.append((tuplet.ratio, tuplet.span))
+        starting_here = sorted(
+            tuplets.get(entnum, ()),
+            key=lambda tuplet: (tuplet.span, tuplet.reference_total),
+            reverse=True,
+        )
+        for tuplet in starting_here:
+            enclosing_ratio = _product_of_ratios(open_tuplets)
+            open_tuplets.append(
+                _OpenTuplet(
+                    tuplet=tuplet,
+                    starts_at=elapsed,
+                    sounds_for=tuplet.reference_total * enclosing_ratio,
+                )
+            )
 
-        ratio = Fraction(1)
-        for tuplet_ratio, _ in active:
-            ratio *= tuplet_ratio
-        out[entnum] = written * ratio
-
-        # Retire tuplets once their written span is consumed. Done after scaling
-        # so the entry that exhausts a tuplet is still scaled by it.
-        active = [
-            (tuplet_ratio, remaining - written)
-            for tuplet_ratio, remaining in active
-            if remaining - written > 0
-        ]
+        sounded = written * _product_of_ratios(open_tuplets)
+        ends_at = elapsed + sounded
+        if open_tuplets:
+            for open_tuplet in open_tuplets:
+                open_tuplet.sounded_inside += sounded
+            open_tuplets[-1].written_consumed += written
+            while open_tuplets and open_tuplets[-1].is_complete:
+                completed = open_tuplets.pop()
+                ends_at = completed.starts_at + completed.sounds_for
+                if open_tuplets:
+                    open_tuplets[-1].written_consumed += completed.tuplet.reference_total
+            ends_at = max(ends_at, elapsed)
+        out[entnum] = ends_at - elapsed
+        elapsed = ends_at
     return out
+
+
+@dataclass
+class _OpenTuplet:
+    tuplet: Tuplet
+    starts_at: Fraction
+    sounds_for: Fraction
+    written_consumed: int = 0
+    sounded_inside: Fraction = Fraction(0)
+
+    @property
+    def is_complete(self) -> bool:
+        return self.written_consumed >= self.tuplet.span or self.sounded_inside >= self.sounds_for
+
+
+def _product_of_ratios(open_tuplets: Sequence[_OpenTuplet]) -> Fraction:
+    product = Fraction(1)
+    for open_tuplet in open_tuplets:
+        product *= open_tuplet.tuplet.ratio
+    return product
 
 
 def entry_chain(document: EnigmaDocument) -> EntryChain:

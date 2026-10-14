@@ -285,6 +285,20 @@ def test_translates_a_tuplet_and_keys_it_by_entry(pools: Callable[..., None]) ->
     assert tuplets[70196][0].ratio == Fraction(2, 3)
 
 
+def test_a_record_holding_two_tuplet_definitions_yields_both(pools: Callable[..., None]) -> None:
+    """An entry starting nested tuplets stores both in one 60-byte record."""
+    sixteenth_triplet = tuplet_payload(3, 256, 2, 256)
+    eighth_triplet = tuplet_payload(3, 512, 2, 512)
+    pools(details=(MusDetailRecord(TAG_TUPLET_DEF, 0, 9, 0, sixteenth_triplet + eighth_triplet),))
+
+    spans = sorted(tuplet.span for tuplet in tuplets_by_entry(read_mus_document(PATH))[9])
+
+    assert spans == [768, 1536], (
+        "the record holds a 16th triplet (span 768) and an eighth triplet (span 1536), and "
+        f"both must be read, but the spans read were {spans}"
+    )
+
+
 def test_a_tuplet_ratio_is_not_inverted(pools: Callable[..., None]) -> None:
     """Every corpus tuplet is 3:2, so nothing in the data distinguishes
     `symbolicNum` from `refNum`. A 5:4 case would come out 4/5 if the pairs were

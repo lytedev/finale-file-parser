@@ -625,8 +625,8 @@ reference renders as plain text rather than pointing at a record that merely loo
 
 One trap is worth stating outright, because two of the three tags would join wrongly without it:
 `inci` does not mean the same thing on both sides. `articAssign` carries the raw record's incidence
-verbatim; `tupletDef` carries no `inci` at all; and `lyrDataVerse`'s is a synthetic per-entry
-counter assigned while one raw record is expanded into several verse records, so it must never be
+verbatim; `tupletDef`'s and `lyrDataVerse`'s are synthetic per-entry counters assigned while one
+raw record is expanded into several records (tuplet definitions, verses), so they must never be
 matched against a raw incidence. The join therefore matches on the full triple only where one
 genuinely exists, and otherwise falls back to the first record of that tag on that entry.
 
@@ -1061,6 +1061,17 @@ corpus reads through `read_entry` without raising.
   decomposition notated on the page (e.g. `1536` is a dotted quarter: `1024 + 512`). **Tuplet
   scaling is a separate detail, not modelled here**: a tuplet's written `dura` is the undivided
   note value, not the sounded duration after the tuplet ratio is applied.
+- **Nested tuplets consume their enclosing tuplet's span by their reference duration.** An entry's
+  written duration counts only against the innermost tuplet in force; when that completes, the one
+  around it consumes the inner tuplet's `refNum × refDur` — a 16th triplet inside an eighth triplet
+  uses one eighth of the outer span. Tuplets starting on one entry open longest first, and the entry
+  completing a tuplet ends where the tuplet does. This is the musx object model's `createEntryFrame`
+  ([permalink](https://github.com/rpatters1/musx-object-model/blob/deda69c1a8622c4268000f8c3e8df460ddef41a8/src/musx/dom/Entries.cpp#L2547-L2720)).
+  In a `.mus`, an entry starting two tuplets stores both in one 60-byte `tupletDef` record, two
+  30-byte definitions; the reader emits one record per definition, `inci` 0 and 1. Evidence: the
+  72 such records in the NinSheetMusic collection are all in *Undertale - Mysterious Place*, whose
+  two triplet-heavy staves sounded 5,746 EDU per 4/4 bar with the second definition unread and
+  spans counted in written time; with both fixes every measure of the piece fills its 4/4 bar.
 - **A `tupletDef` may have `refNum` 0**, "n in the time of none": its notes sound for no time.
   The one document carrying such tuplets puts each on a 64th inserted into a run of 64ths, and both
   staves of the measure sum to exactly 3/4 only when those notes count for nothing (ignoring the

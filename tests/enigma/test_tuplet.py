@@ -195,3 +195,78 @@ def test_a_tuplet_of_none_makes_its_notes_sound_for_no_time() -> None:
         "only the 64th the tuplet of none covers loses its time, and its neighbours keep "
         f"theirs, but the sounded durations were {sounded}"
     )
+
+
+SIXTEENTH = 256
+
+
+def sixteenth_triplet() -> Tuplet:
+    return triplet(SIXTEENTH)
+
+
+def test_an_inner_tuplet_uses_up_its_reference_duration_of_the_outer_span() -> None:
+    """An eighth triplet of [eighth, 16th triplet, 16th triplet] fills two eighths.
+
+    Each 16th triplet writes three 16ths but stands for one eighth of the outer
+    triplet; counting the written 16ths against the outer span kept it open past
+    its notes and stretched the following notes by 2/3.
+    """
+    chain = EntryChain(
+        order=list(range(1, 9)),
+        written_edu={
+            1: EIGHTH,
+            2: SIXTEENTH,
+            3: SIXTEENTH,
+            4: SIXTEENTH,
+            5: SIXTEENTH,
+            6: SIXTEENTH,
+            7: SIXTEENTH,
+            8: QUARTER,
+        },
+    )
+    got = sounded_durations(
+        chain, {1: (triplet(),), 2: (sixteenth_triplet(),), 5: (sixteenth_triplet(),)}
+    )
+    triplet_total = sum((got[entnum] for entnum in range(1, 8)), Fraction(0))
+
+    assert triplet_total == 2 * EIGHTH, (
+        f"the eighth triplet must sound exactly two eighths, but its notes sum to {triplet_total}"
+    )
+    assert got[2] == SIXTEENTH * Fraction(2, 3) * Fraction(2, 3), (
+        f"a 16th inside both triplets scales by both ratios, but sounded {got[2]}"
+    )
+    assert got[8] == QUARTER, (
+        f"the quarter after the triplet is outside every tuplet, but sounded {got[8]}"
+    )
+
+
+def test_tuplets_starting_together_nest_longest_first_whatever_their_order() -> None:
+    """The 16th triplet listed first must still open inside the eighth triplet."""
+    chain = EntryChain(
+        order=[1, 2, 3, 4, 5],
+        written_edu={1: SIXTEENTH, 2: SIXTEENTH, 3: SIXTEENTH, 4: EIGHTH, 5: EIGHTH},
+    )
+    got = sounded_durations(chain, {1: (sixteenth_triplet(), triplet())})
+    triplet_total = sum((got[entnum] for entnum in range(1, 6)), Fraction(0))
+
+    assert triplet_total == 2 * EIGHTH, (
+        "a 16th triplet then two eighths, all inside an eighth triplet, sound two eighths "
+        f"whichever definition comes first, but they sum to {triplet_total}"
+    )
+
+
+def test_the_entry_overfilling_a_tuplet_ends_exactly_where_the_tuplet_does() -> None:
+    """An eighth and a dotted quarter write four eighths into a triplet of three.
+
+    The tuplet still occupies two eighths, as Finale lays it out, so the entry
+    that overruns it is cut at the tuplet's end and later notes keep their place.
+    """
+    dotted_quarter = 1536
+    chain = EntryChain(order=[1, 2, 3], written_edu={1: EIGHTH, 2: dotted_quarter, 3: QUARTER})
+    got = sounded_durations(chain, {1: (triplet(),)})
+
+    assert got[1] + got[2] == 2 * EIGHTH, (
+        "an eighth triplet occupies two eighths however much is written into it, but its "
+        f"notes sounded {got[1] + got[2]}"
+    )
+    assert got[3] == QUARTER, f"the quarter after the triplet must be unscaled, not {got[3]}"

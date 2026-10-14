@@ -1103,6 +1103,16 @@ def _gfhold(payload: bytes) -> dict[str, str | tuple[str, ...] | Record | tuple[
     return fields
 
 
+_TUPLET_DEF_SIZE = 30
+"""Bytes of one tuplet definition in a `tupletDef` record.
+
+1,388 of the 1,460 `tupletDef` records in the NinSheetMusic collection are 30
+bytes. The other 72, all in *Undertale - Mysterious Place*, are 60: two
+definitions back to back, each with the four ratio fields at the same offsets --
+a 16th triplet and the eighth triplet enclosing it, both starting on that entry.
+A `.musx` writes the same thing as two records of one entry, told apart by
+`inci`, which is the shape emitted here."""
+
 _TUPLET_FIELDS = (("symbolicNum", 0), ("symbolicDur", 2), ("refNum", 4), ("refDur", 6))
 """ETF's documented field order, and the layout the payload actually has.
 
@@ -1211,14 +1221,21 @@ def _details_records(records: tuple[MusDetailRecord, ...]) -> list[Record]:
                 )
             )
         elif record.tag == TAG_TUPLET_DEF and len(record.payload) >= 8:
-            out.append(
-                Record(
-                    tag="tupletDef",
-                    attrs={"entnum": str(entry_key(record))},
-                    text="",
-                    fields={
-                        name: str(_u16(record.payload, offset)) for name, offset in _TUPLET_FIELDS
-                    },
+            # One definition per 30-byte group: an entry that starts nested
+            # tuplets stores them all in one record. Reading only the first lost
+            # the outer triplet of every nested pair.
+            definition_count = max(len(record.payload) // _TUPLET_DEF_SIZE, 1)
+            for inci in range(definition_count):
+                tuplet_definition_bytes = record.payload[inci * _TUPLET_DEF_SIZE :]
+                out.append(
+                    Record(
+                        tag="tupletDef",
+                        attrs={"entnum": str(entry_key(record)), "inci": str(inci)},
+                        text="",
+                        fields={
+                            name: str(_u16(tuplet_definition_bytes, offset))
+                            for name, offset in _TUPLET_FIELDS
+                        },
+                    )
                 )
-            )
     return out
