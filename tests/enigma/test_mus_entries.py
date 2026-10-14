@@ -171,6 +171,66 @@ def test_rejects_a_payload_with_no_entry_pool(tmp_path: Path) -> None:
         read_mus_entries(path)
 
 
+def _vacant_slot(entnum: int) -> bytes:
+    """A deleted entry's slot: its entnum, then 34 zero bytes."""
+    return entnum.to_bytes(4, "little") + b"\x00" * (SLOT - 4)
+
+
+def test_vacant_slots_left_by_deleted_entries_are_skipped(tmp_path: Path) -> None:
+    """Finale 2010 can keep a deleted entry's slot, zeroed but for its entnum.
+
+    Such a slot has no SETBIT and a zero duration; before this was recognised it
+    failed the sniffer and the whole document reported no entry pool.
+    """
+    live = _entry_slot(1, dura=1024, flag=SETBIT | NOTEBIT, notes=[(0x0060, SETBIT)])
+    later = _entry_slot(4, dura=512, flag=SETBIT | NOTEBIT, notes=[(0x0010, SETBIT)])
+    pool = live + _vacant_slot(2) + _vacant_slot(3) + later + _pool(150)
+    path = tmp_path / "vacant.mus"
+    path.write_bytes(_mus_file(pool))
+    entries = read_mus_entries(path)
+    entnums = [entry.entnum for entry in entries[:2]]
+    assert entnums == [1, 4], (
+        f"vacant slots 2 and 3 stand for no entry, so the first two entries read must be "
+        f"the live entries 1 and 4, but they were {entnums}"
+    )
+    assert len(entries) == 152, (
+        f"two live entries plus 150 padding entries must be read, and no vacant slot, "
+        f"but {len(entries)} were read"
+    )
+
+
+def test_a_slot_with_any_byte_set_past_its_entnum_is_not_vacant(tmp_path: Path) -> None:
+    """Only an all-zero tail marks a vacancy; a stray duration alone is malformed."""
+    entnum_index_prev_next = (2).to_bytes(4, "little") + b"\x00" * 10
+    stray_duration = entnum_index_prev_next + (1024).to_bytes(2, "little")
+    almost_vacant = stray_duration.ljust(SLOT, b"\x00")
+    pool = _vacant_slot(1) + almost_vacant + _pool(150)
+    path = tmp_path / "almost.mus"
+    path.write_bytes(_mus_file(pool))
+    with pytest.raises(CorruptScoreError, match="no recognisable entry pool"):
+        read_mus_entries(path)
+
+
+def test_a_pool_of_only_vacant_slots_is_not_sniffed_as_the_entry_pool(tmp_path: Path) -> None:
+    """Zero-filled bytes tile as vacant slots, which is too little evidence to claim a pool."""
+    pool = b"".join(_vacant_slot(entnum) for entnum in range(1, 200))
+    path = tmp_path / "all_vacant.mus"
+    path.write_bytes(_mus_file(pool))
+    with pytest.raises(CorruptScoreError, match="no recognisable entry pool"):
+        read_mus_entries(path)
+
+
+def test_a_labelled_pool_of_only_vacant_slots_reads_as_no_entries(tmp_path: Path) -> None:
+    """When the container names the pool, every entry having been deleted is an answer."""
+    pool = b"".join(entnum.to_bytes(4, "big") + b"\x00" * (SLOT - 4) for entnum in range(1, 4))
+    path = tmp_path / "all_deleted.mus"
+    path.write_bytes(_dcl_file(pool, "big"))
+    entries = read_mus_entries(path)
+    assert entries == (), (
+        f"a labelled pool holding only vacant slots has no live entries, but {entries} were read"
+    )
+
+
 def test_missing_file_raises(tmp_path: Path) -> None:
     with pytest.raises(FileNotFoundError):
         read_mus_entries(tmp_path / "absent.mus")

@@ -28,6 +28,11 @@ First slot (index 0):
 
 Continuation slots (index > 0) carry only notes, five per slot, from offset 6.
 
+A **vacant slot** keeps its entnum and zeroes everything after it -- slot
+index, links, duration, flags, count. It is a deleted entry that Finale left in
+place rather than compacting the pool, and it stands for no entry at all; see
+`_is_vacant_slot`.
+
 A note record is 6 bytes: TCD (2) then note flag (4). The TCD's upper twelve bits
 are the pitch (signed) and its low nibble the alteration -- stored **sign and
 magnitude**, bit 3 being the sign, not two's complement. `eeppd.txt` describes the
@@ -182,7 +187,7 @@ def _read_labelled(pool: MusPool, path: str | os.PathLike[str]) -> tuple[Record,
     """Read the pool the container itself calls the entry pool."""
     if not pool.data:
         return ()
-    if not _looks_like_entry_pool(pool.data, pool.byte_order):
+    if not _tiles_as_entry_slots(pool.data, pool.byte_order):
         raise CorruptScoreError(
             f"{path}: the pool the container labels as entries does not tile as entry slots"
         )
@@ -222,23 +227,38 @@ def _slot_span(note_count: int) -> int:
     return 1 + -(-overflow // _CONT_SLOT_NOTES)  # ceiling division
 
 
-def _looks_like_entry_pool(stream: bytes, order: ByteOrder = "little") -> bool:
-    """Is this stream the entry pool, read `order`-endian?
+def _is_vacant_slot(stream: bytes, position: int) -> bool:
+    """Is the slot at `position` a deleted entry, holding nothing but its entnum?
 
-    Identified by structure rather than by position, so a file whose streams are
-    ordered differently still works. Every legal entry has SETBIT set and a
-    plausible note count, and the slots must tile the stream exactly -- a
-    combination the other pools do not satisfy (verified across the corpus).
+    Finale does not always compact the pool when entries are deleted: it can
+    keep the slot, entnum and all, and zero the other 34 bytes. Such a slot has
+    no SETBIT, which `eeppd.txt` says every legal entry carries, and a duration
+    of 0, which no entry can have -- so it is not an entry that happens to be
+    empty but the absence of one, and it is skipped rather than read.
 
-    The test is also strict enough to tell the byte orders apart: over the 139
-    DCL-era documents it accepts a pool read the file's own way round and no
-    pool read the other way, which is what makes it safe as a fallback for files
-    whose container does not label its pools.
+    Seen in 14 Finale 2010 documents of a 51-document set by one author, 1 to
+    225 vacant slots each, 912 in all. No live entry's `prev` or `next` and
+    no `frameSpec`'s `startEntry` or `endEntry` names a vacant entnum, so
+    dropping them loses nothing a frame can reach. A slot carrying any nonzero
+    byte past its entnum is not vacant and is held to the full tests.
+    """
+    return not any(stream[position + 4 : position + _SLOT])
+
+
+def _tiles_as_entry_slots(stream: bytes, order: ByteOrder) -> bool:
+    """Do this stream's 38-byte slots tile it exactly as entries, read `order`-endian?
+
+    Every live entry has SETBIT set, a first slot of index 0 and a plausible
+    note count, and its continuation slots must fit before the next entry; a
+    vacant slot (`_is_vacant_slot`) occupies exactly one slot.
     """
     if not stream or len(stream) % _SLOT:
         return False
     position = 0
     while position + _SLOT <= len(stream):
+        if _is_vacant_slot(stream, position):
+            position += _SLOT
+            continue
         if _u16(stream, position + 4, order) != 0:
             return False  # a first slot must carry slot index 0
         if not _u32(stream, position + 18, order) & _SETBIT:
@@ -250,10 +270,41 @@ def _looks_like_entry_pool(stream: bytes, order: ByteOrder = "little") -> bool:
     return position == len(stream)
 
 
+def _holds_a_live_entry(stream: bytes) -> bool:
+    return any(
+        not _is_vacant_slot(stream, position)
+        for position in range(0, len(stream) - _SLOT + 1, _SLOT)
+    )
+
+
+def _looks_like_entry_pool(stream: bytes, order: ByteOrder = "little") -> bool:
+    """Is this stream the entry pool, read `order`-endian?
+
+    Identified by structure rather than by position, so a file whose streams are
+    ordered differently still works: the slots must tile the stream as entries
+    (`_tiles_as_entry_slots`) -- a combination the other pools do not satisfy
+    (verified across the corpus).
+
+    The test is also strict enough to tell the byte orders apart: over the 139
+    DCL-era documents it accepts a pool read the file's own way round and no
+    pool read the other way, which is what makes it safe as a fallback for files
+    whose container does not label its pools.
+
+    It also demands at least one live entry. Vacant slots are only an entnum
+    followed by zeroes, so a stream of nothing else -- a zero-filled one whose
+    length happens to be a multiple of 38 -- would otherwise tile, and a sniffer
+    must not claim a pool on that little evidence.
+    """
+    return _tiles_as_entry_slots(stream, order) and _holds_a_live_entry(stream)
+
+
 def _read_pool(stream: bytes, order: ByteOrder) -> list[Record]:
     records: list[Record] = []
     position = 0
     while position + _SLOT <= len(stream):
+        if _is_vacant_slot(stream, position):
+            position += _SLOT
+            continue
         stored_count = _u16(stream, position + 24, order)
         if stored_count > _MAX_NOTES:
             raise CorruptScoreError(f"entry note count {stored_count} exceeds {_MAX_NOTES}")

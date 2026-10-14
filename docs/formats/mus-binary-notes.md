@@ -10,7 +10,38 @@
 All findings below are from **structural analysis of the curated corpus (238 `.mus`, 401 `.musx`)**
 plus permitted community documentation. Report counts/structure only — never corpus record values.
 
-## ✅ `0xFFFF` is filler — the details pool now reads 91 of 91 documents
+## ✅ Vacant entry slots — deleted entries Finale did not compact away
+
+**Symptom.** 14 Finale 2010 documents from one third-party set (not in the curated corpus) raised
+"has no recognisable entry pool". The other 37 documents from the same set and author got past the
+entry pool.
+
+**Container is not the cause.** Walked as framed records from 0x200, failing and passing files
+alike carry five little-endian pools with kinds 26, 27, 22, 23, 19 (the last empty, length 6); kind
+22 inflates to a multiple of 38 bytes in every one of the 51 files. All 14 failures have a 2010
+banner, but so do 3 passing documents (the rest are 2011 and 2012), so the version alone does not
+decide it.
+
+**Cause.** Walking kind 22 as entry slots, every slot the sniffer rejected had the same shape: the
+4-byte entnum set and all 34 following bytes zero — slot index 0, `prev`/`next` 0, duration 0,
+flags 0 (so no `SETBIT`), count 0. One such slot fails `_looks_like_entry_pool`, and the document
+then has no entry pool at all. Counted with a vacant slot treated as one empty slot:
+
+- exactly the 14 failing documents hold vacant slots (1 to 225 each, 912 in all); the other 37
+  documents hold none;
+- every one of the 14 then tiles exactly, with no other kind of rejected slot;
+- no live entry's `prev` or `next`, and no `frameSpec` `startEntry` or `endEntry`, names a vacant
+  entnum — they are unreachable, which is what a deleted entry should be.
+
+The entnums of vacant slots come in runs (e.g. 167–170, 175–179, 222–231 in one file), as a deleted
+passage would. `_live_entries` in `mus_document` already describes the DCL-era pool as a live
+database whose deleted entries keep their slots with stale content; the 2010 writer evidently zeroes
+the slot instead of leaving it stale.
+
+**Effect.** `_read_pool` skips vacant slots; the sniffer accepts them but still requires one live
+entry. All 14 documents now read their entries, and each proceeds to the next stage (at the time of
+writing, all 14 then stop at a `gfhold` naming a measure with no `measSpec`, a separate problem).
+
 
 Both pools separate sections with two-byte filler words. `0x0000` was always skipped; **`0xFFFF` is
 filler too**, and missing that was what stopped the walk on seven documents.
