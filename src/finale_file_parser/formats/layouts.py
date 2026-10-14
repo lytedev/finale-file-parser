@@ -223,6 +223,8 @@ GF_HOLD = Layout(
         Field(0, 2, "clefID", "uint16", "clef in force for this measure"),
         Field(GFHOLD_FRAME_BASE_2005, 2, "frame1", "uint16", "layer 1 frame id; 0 = layer empty"),
         Field(GFHOLD_FRAME_BASE_2005 + 2, 2, "frame2", "uint16", "layer 2 frame id"),
+        Field(GFHOLD_FRAME_BASE_2005 + 4, 2, "frame3", "uint16", "layer 3 frame id"),
+        Field(GFHOLD_FRAME_BASE_2005 + 6, 2, "frame4", "uint16", "layer 4 frame id"),
     ),
     computed=True,
 )

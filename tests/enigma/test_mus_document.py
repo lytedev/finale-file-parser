@@ -51,13 +51,14 @@ def meas_spec_payload(width: int, key: int, beats: int, divbeat: int) -> bytes:
     return b"".join(v.to_bytes(2, "little") for v in (width, key, beats, divbeat))
 
 
-def gfhold_payload(clef: int, frame1: int, frame2: int = 0) -> bytes:
+def gfhold_payload(
+    clef: int, frame1: int, frame2: int = 0, frame3: int = 0, frame4: int = 0
+) -> bytes:
     return (
         clef.to_bytes(2, "little")
         + bytes(4)
-        + frame1.to_bytes(2, "little")
-        + frame2.to_bytes(2, "little")
-        + bytes(10)
+        + b"".join(frame.to_bytes(2, "little") for frame in (frame1, frame2, frame3, frame4))
+        + bytes(6)
     )
 
 
@@ -153,6 +154,19 @@ def test_translates_a_gfhold_with_two_layers(pools: Callable[..., None]) -> None
     assert (record.attrs["cmper1"], record.attrs["cmper2"]) == ("2", "7")
     assert (record.fields["clefID"], record.fields["frame1"]) == ("3", "32")
     assert record.fields["frame2"] == "33"
+
+
+def test_translates_a_gfhold_with_all_four_layers(pools: Callable[..., None]) -> None:
+    """Layers 3 and 4 sit at +10 and +12. Left unread, their entries were
+    orphans and the whole document failed to build."""
+    pools(details=(MusDetailRecord(GFHOLD, 1, 1, 0, gfhold_payload(0, 32, 33, 34, 35)),))
+    record = read_mus_document(PATH).details.get("gfhold", 1, 1)
+    assert record is not None
+    frames_by_slot = {name: record.fields.get(name) for name in ("frame3", "frame4")}
+    assert frames_by_slot == {"frame3": "34", "frame4": "35"}, (
+        "a gfhold's third and fourth layers must be read from +10 and +12, "
+        f"but got {frames_by_slot}"
+    )
 
 
 def test_an_empty_layer_slot_is_omitted(pools: Callable[..., None]) -> None:

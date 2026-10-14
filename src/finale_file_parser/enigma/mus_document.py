@@ -22,7 +22,7 @@ Translated:
 | entries | `entry` | via `read_mus_entry_records` |
 | others | `frameSpec` (146) | `startEntry`, `endEntry` |
 | others | `measSpec` (176) | `keySig.key`, `beats`, `divbeat`, the +10 flags byte |
-| details | `gfhold` (1044) | `clefID`, `frame1`, `frame2` |
+| details | `gfhold` (1044) | `clefID`, `frame1`..`frame4` |
 | options | `clefOptions` (109) | the clef table: `adjust`, `clefChar`, `clefYDisp`, `shapeID` |
 | details | `tupletDef` (1072) | `symbolicNum`, `symbolicDur`, `refNum`, `refDur` |
 | others | `staffSpec` (231) | `transposition.keysig.adjust` only — see below |
@@ -201,16 +201,6 @@ UNTRANSLATED = (
     "Chorus and section lyrics: the .mus tag for lyrDataVerse is identified, but "
     "no paired corpus document uses a chorus or section track, so their tags are "
     "unknown and those lyrics are absent from a .mus-derived score.",
-    "gfhold frame3-4 in a 2011 .mus: layers 3 and 4. Frames 1 and 2 are at "
-    "payload +6 and +8, confirmed against the corpus. This entry used to say no "
-    "corpus .musx carries a frame3 or frame4; that is wrong -- 141 frame3 and "
-    "147 frame4 slots exist. What is true, and is the reason the next two slots "
-    "stay a guess, is that NONE of them is in a PAIRED document: 0 of 95. A "
-    ".musx with no .mus cannot verify a .mus offset. A 2011 document using "
-    "layer 3 or 4 therefore leaves those entries "
-    "unplaced, which locate_entries rejects as orphans -- a loud failure rather "
-    "than a silent misplacement. The 2001-2005 rows reader does read all four "
-    "slots; see _FRAME_LAYERS for why the number is the format's, not a guess.",
 )
 """What a `.mus`-derived score does not yet carry, and the consequence of each.
 
@@ -382,10 +372,10 @@ apart -- three in a 2001 file, six in a 2005 one. See
 _FRAME_LAYERS = 4
 """Frame slots per `GF` record, one per Finale layer.
 
-Four, not the two the 2011 reader takes: a fifth slot never resolves to a frame
-in any corpus document, and reading the third and fourth reaches 1,058 entries
-that two leave orphaned. Finale has four layers, so this is the format's own
-number rather than a fitted one."""
+Four, as the 2011 reader's `_GFHOLD_FRAME_OFFSETS` also takes: a fifth slot
+never resolves to a frame in any corpus document, and reading the third and
+fourth reaches 1,058 entries that two leave orphaned. Finale has four layers,
+so this is the format's own number rather than a fitted one."""
 
 _ROW_DATA = 12
 """Bytes of data in one `others` row, so `incidences` gives the payload's shape."""
@@ -1096,11 +1086,26 @@ def _gfhold(payload: bytes) -> dict[str, str | tuple[str, ...] | Record | tuple[
     fields: dict[str, str | tuple[str, ...] | Record | tuple[Record, ...]] = {
         "clefID": str(_u16(payload, 0)),
     }
-    for layer, offset in ((1, 6), (2, 8)):
+    for layer, offset in enumerate(_GFHOLD_FRAME_OFFSETS, start=1):
         frame = _u16(payload, offset)
         if frame:
             fields[f"frame{layer}"] = str(frame)
     return fields
+
+
+_GFHOLD_FRAME_OFFSETS = (6, 8, 10, 12)
+"""Where a 2011-2012 `gfhold` payload stores frame1..frame4, one per layer.
+
+Frames 1 and 2 are confirmed against paired `.musx` files (see `mus_details`).
+No paired document uses layer 3 or 4, so +10 and +12 rest on the stride and on
+what they point at: in a third-party collection of 232 readable 2010-2012
+`.mus` documents, 24 holds carry a frame at +10 and 8 at +12 (+14 to +18 are
+zero in all 21,821 holds of the whole collection, unreadable documents
+included), every one of those 32 names an existing `frameSpec`, none
+of their entries is also reached from frame1 or frame2, and together they
+place every entry that 8 of those documents otherwise left orphaned. Finale
+has four layers, and the 2001-2005 reader's four-slot frame array agrees.
+"""
 
 
 _TUPLET_FIELDS = (("symbolicNum", 0), ("symbolicDur", 2), ("refNum", 4), ("refDur", 6))

@@ -458,6 +458,16 @@ the resolved value. All 272 non-matching records are exactly that case, none une
 refines the earlier finding that every `gfhold` carries a `clefID` with no inheritance — true of
 `.musx`, not of `.mus`.
 
+**`frame2`, `frame3` and `frame4` follow at +8, +10 and +12** — one u16 per Finale layer, the same
+four-slot array the 2001-2005 `GF` row carries. `frame2` is pair-confirmed; `frame3`/`frame4` are
+not, because no paired document uses layer 3 or 4. Their evidence is a third-party collection of 254
+2010-2012 `.mus` files (NinSheetMusic transcriptions; not in `corpus/`, not committable), 232 of which
+read: +14..+18 are zero in all 21,821 of the collection's holds; in the readable documents 24 holds
+carry a frame at +10 and 8 at +12, and every one of those values names an existing `frameSpec` whose entries no `frame1`/`frame2`
+reaches, and 21 of the 22 distinct (staff, measure, layer) cells they fill sum to exactly the
+measure's time signature (the 22nd is a lone quarter rest, a partial layer). Before these slots were
+read, those entries were orphans and 8 of the documents failed to build.
+
 **`inci` at +6 is named by position, not evidence.** Zero in all 77,384 corpus records examined, and
 no corpus document repeats a `(tag, cmper1, cmper2)` key, so nothing distinguishes an incidence
 counter from a reserved field. The reader keeps the value rather than dropping it.
