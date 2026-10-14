@@ -84,6 +84,8 @@ from finale_file_parser.enigma.mus_others import (
     TAG_REPEAT_PASS_LIST,
     TAG_STAFF_SPEC,
     TAG_TEXT_EXPR_DEF,
+    TAG_TIME_LOWER,
+    TAG_TIME_UPPER,
     MusOther,
     read_mus_others,
 )
@@ -301,6 +303,18 @@ only exact candidate. One negative example is thin on its own, but
 style)`, and 0x0400 is the bit that example sets."""
 
 _MEAS_FLAGS = 10
+_MEAS_TIME_SIGNATURE_FLAGS = 8
+_MEAS_COMPOSITE_TIME_SIGNATURE_BITS = 0x00C0
+"""Set when `beats` and `divbeat` name `timeUpper`/`timeLower` records instead
+of holding a count and a unit -- the `.musx` `altNumTsig` and `altDenTsig`.
+
+Found by testing every bit of the u16s at +8 and +10 across the 7,283 measures
+of the NinSheetMusic collection's `.mus` files: 0x40 and 0x80 at +8 are set on
+all 31 measures whose `divbeat` is no note value and on exactly one other, the
+32nd composite measure of the same document, whose `divbeat` cmper happens to be
+512. No measure sets one without the other, so which bit is the numerator's and
+which the denominator's cannot be told apart; a measure setting only one is
+refused rather than guessed at."""
 _MEAS_BARLINE_STYLES = {1: "normal", 2: "double"}
 """The flags byte's **high nibble** is the barline style, as `.musx` names it.
 
@@ -332,6 +346,11 @@ _CLEF_SIGNED = {"adjust", "clefYDisp"}
 """`clefChar` and `shapeID` are unsigned; the two displacements are not."""
 
 _EMPTY: tuple[Record, ...] = ()
+
+_TIME_UPPER_ITEM = 6
+"""`[u16 beats][u16 frac][u16 startGroup]`; see `mus_others.TAG_TIME_UPPER`."""
+_TIME_LOWER_ITEM = 4
+"""`[u16 unit][u16 startGroup]`; see `mus_others.TAG_TIME_LOWER`."""
 
 
 def read_mus_document(path: str | os.PathLike[str]) -> EnigmaDocument:
@@ -876,6 +895,14 @@ def _others_records(records: tuple[MusOther, ...], fallback: str) -> list[Record
             out.append(
                 Record(tag="measSpec", attrs=attrs, text="", fields=_meas_spec(record.payload))
             )
+        elif record.tag == TAG_TIME_UPPER:
+            out.append(
+                Record(tag="timeUpper", attrs=attrs, text="", fields=_time_upper(record.payload))
+            )
+        elif record.tag == TAG_TIME_LOWER:
+            out.append(
+                Record(tag="timeLower", attrs=attrs, text="", fields=_time_lower(record.payload))
+            )
         elif record.tag == TAG_ARTIC_DEF:
             offset = _ARTIC_CHAR_OFFSET.get(len(record.payload))
             if offset is not None:
@@ -1017,6 +1044,40 @@ def _staff_spec(
     }
 
 
+def _time_upper(payload: bytes) -> dict[str, str | tuple[str, ...] | Record | tuple[Record, ...]]:
+    """`tudata` items, one per non-empty 6-byte group, in the `.musx` shape."""
+    items: list[Record] = []
+    for at in range(0, len(payload) - _TIME_UPPER_ITEM + 1, _TIME_UPPER_ITEM):
+        beats, fraction, starts_group = (_u16(payload, at + offset) for offset in (0, 2, 4))
+        if not (beats or fraction or starts_group):
+            continue
+        item_fields: dict[str, str | tuple[str, ...] | Record | tuple[Record, ...]] = {
+            "integer": str(beats)
+        }
+        if fraction:
+            item_fields["frac"] = str(fraction)
+        if starts_group:
+            item_fields["startGroup"] = ""
+        items.append(Record(tag="tudata", attrs={}, text="", fields=item_fields))
+    return {"tudata": tuple(items)} if items else {}
+
+
+def _time_lower(payload: bytes) -> dict[str, str | tuple[str, ...] | Record | tuple[Record, ...]]:
+    """`tldata` items, one per non-empty 4-byte group, in the `.musx` shape."""
+    items: list[Record] = []
+    for at in range(0, len(payload) - _TIME_LOWER_ITEM + 1, _TIME_LOWER_ITEM):
+        unit, starts_group = _u16(payload, at), _u16(payload, at + 2)
+        if not (unit or starts_group):
+            continue
+        item_fields: dict[str, str | tuple[str, ...] | Record | tuple[Record, ...]] = {
+            "integer": str(unit)
+        }
+        if starts_group:
+            item_fields["startGroup"] = ""
+        items.append(Record(tag="tldata", attrs={}, text="", fields=item_fields))
+    return {"tldata": tuple(items)} if items else {}
+
+
 def _meas_spec(
     payload: bytes, order: ByteOrder = "little"
 ) -> dict[str, str | tuple[str, ...] | Record | tuple[Record, ...]]:
@@ -1036,6 +1097,18 @@ def _meas_spec(
     key = _u16(payload, 2, order)
     if key:
         fields["keySig"] = Record(tag="keySig", attrs={}, text="", fields={"key": str(key)})
+    if len(payload) >= _MEAS_TIME_SIGNATURE_FLAGS + 2:
+        composite_bits = (
+            _u16(payload, _MEAS_TIME_SIGNATURE_FLAGS, order) & _MEAS_COMPOSITE_TIME_SIGNATURE_BITS
+        )
+        if composite_bits == _MEAS_COMPOSITE_TIME_SIGNATURE_BITS:
+            fields["altNumTsig"] = ""
+            fields["altDenTsig"] = ""
+        elif composite_bits:
+            raise CorruptScoreError(
+                f"measSpec sets only composite time signature bit {composite_bits:#x}; "
+                "which half of the signature it makes composite is not known"
+            )
     if len(payload) > _MEAS_FLAGS + 1:
         # The **low byte of the u16 at +10**, not the byte at +10. ETF stores
         # `others` data as two-byte values, so the flags sit at +10 in a

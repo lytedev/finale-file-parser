@@ -51,6 +51,8 @@ __all__ = [
     "TAG_MEAS_SPEC",
     "TAG_STAFF_SPEC",
     "TAG_TEXT_EXPR_DEF",
+    "TAG_TIME_LOWER",
+    "TAG_TIME_UPPER",
     "MusOther",
     "read_mus_others",
 ]
@@ -75,6 +77,24 @@ TAG_MEAS_SPEC = 176
 TAG_STAFF_SPEC = 231
 """`staffSpec` — confirmed by payload (rest offsets, staff lines, repeat-dot
 offsets), not by key sequence."""
+
+TAG_TIME_LOWER = 237
+"""`timeLower` -- a composite time signature's bottom half, keyed by the cmper a
+`measSpec`'s `divbeat` names when the measure is composite. Each 4-byte item is
+`[u16 unit EDU][u16 startGroup]`, the field order the musx object model maps for
+the `.musx` `<tldata>` (`integer`, `startGroup`); an all-zero item is padding.
+
+Identified in the one composite document of the NinSheetMusic collection: every
+one of its 32 composite measures names a 237 record by `divbeat`, and reading
+them this way gives units of 768 and 1024 EDU, whose totals match every staff's
+entries (see `enigma.timesig`)."""
+
+TAG_TIME_UPPER = 238
+"""`timeUpper` -- a composite time signature's top half, keyed by the cmper a
+composite `measSpec`'s `beats` names. Each 6-byte item is `[u16 beats][u16 frac]
+[u16 startGroup]`, the musx object model's `<tudata>` field order (`integer`,
+`frac`, `startGroup`), with `frac` holding a numerator in its high byte and a
+denominator in its low one. Same evidence as `TAG_TIME_LOWER`."""
 
 TAG_ARTIC_DEF = 121
 """`articDef` — an articulation's definition. Its `charMain` is the music-font

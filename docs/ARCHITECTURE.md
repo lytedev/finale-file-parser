@@ -276,6 +276,21 @@ undotted unit. Reporting `beats` directly as the numerator would call 6/8 "2/8".
 Every one of the 2,622 corpus `measSpec` records carries both fields, so unlike the key signature
 there is **no inheritance to apply**. Signatures observed: 4/4, 3/4, 2/4, 2/2, 6/8, 9/8, 3/8, 1/4, 1/8.
 
+**A composite time signature stores record numbers, not a count and a unit.** With `altNumTsig` and
+`altDenTsig` set, `beats` is the cmper of a `timeUpper` record and `divbeat` of a `timeLower` one;
+each lists items (`integer`, plus `frac` on the top half) split into groups by `startGroup`. A group
+lasts (sum of counts) × (sum of units) and the measure the sum of its groups — the musx object
+model's reading
+([permalink](https://github.com/rpatters1/musx-object-model/blob/deda69c1a8622c4268000f8c3e8df460ddef41a8/src/musx/dom/CommonClasses.cpp#L951-L972)).
+The IR holds one count and one unit, so `composite_time_signature` gives the sum over the greatest
+common divisor of the group units: 3 dotted eighths + 1 quarter is 13/16. In a `.mus` the two flags
+are bits 0x80 and 0x40 of the u16 at `measSpec` +8, and the records are others tags 238
+(`timeUpper`, 6-byte items `[beats][frac][startGroup]`) and 237 (`timeLower`, 4-byte items
+`[unit][startGroup]`). Evidence: the one composite document in the NinSheetMusic collection
+(*Ganondorf Battle*) has 32 composite measures; the two bits are set on exactly those among its
+7,283 measures, never one without the other — so which is which is not known, and a lone bit is
+refused — and all 96 of their staff-measures hold exactly the 13/16 or 10/16 this decode gives.
+
 **A display time signature is only valid when `useDisplayTimesig` is set.** `dispBeats` and
 `dispDivbeat` are present on *every* measure but hold a default when the flag is clear — reading them
 unconditionally reports a display signature for 1,937 of 2,622 measures that do not have one, usually
