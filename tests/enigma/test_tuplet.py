@@ -92,6 +92,8 @@ def test_missing_written_duration_raises() -> None:
     [
         {"symbolicNum": "0", "symbolicDur": "512", "refNum": "2", "refDur": "512"},
         {"symbolicNum": "3", "symbolicDur": "512", "refNum": "2"},
+        {"symbolicNum": "3", "symbolicDur": "512", "refNum": "-1", "refDur": "512"},
+        {"symbolicNum": "3", "symbolicDur": "512", "refNum": "2", "refDur": "0"},
         {"symbolicNum": "x", "symbolicDur": "512", "refNum": "2", "refDur": "512"},
     ],
 )
@@ -171,3 +173,25 @@ def test_a_linked_part_tuplet_override_is_not_read_as_a_tuplet() -> None:
     by_entry = tuplets_by_entry(document)
     assert len(by_entry[1]) == 1
     assert by_entry[1][0].symbolic_number == 3
+
+
+def test_a_tuplet_of_none_makes_its_notes_sound_for_no_time() -> None:
+    """One 64th in the time of zero 64ths: a real document fills its measures only this way."""
+    from finale_file_parser.enigma.document import Record
+    from finale_file_parser.enigma.tuplet import read_tuplet
+
+    record = Record(
+        tag="tupletDef",
+        attrs={"entnum": "2"},
+        text="",
+        fields={"symbolicNum": "1", "symbolicDur": "64", "refNum": "0", "refDur": "64"},
+    )
+    tuplet_of_none = read_tuplet(record)
+    chain = EntryChain(order=[1, 2, 3], written_edu={1: 64, 2: 64, 3: 64})
+
+    sounded = sounded_durations(chain, {2: (tuplet_of_none,)})
+
+    assert sounded == {1: 64, 2: 0, 3: 64}, (
+        "only the 64th the tuplet of none covers loses its time, and its neighbours keep "
+        f"theirs, but the sounded durations were {sounded}"
+    )

@@ -1061,6 +1061,11 @@ corpus reads through `read_entry` without raising.
   decomposition notated on the page (e.g. `1536` is a dotted quarter: `1024 + 512`). **Tuplet
   scaling is a separate detail, not modelled here**: a tuplet's written `dura` is the undivided
   note value, not the sounded duration after the tuplet ratio is applied.
+- **A `tupletDef` may have `refNum` 0**, "n in the time of none": its notes sound for no time.
+  The one document carrying such tuplets puts each on a 64th inserted into a run of 64ths, and both
+  staves of the measure sum to exactly 3/4 only when those notes count for nothing (ignoring the
+  tuplet overflows by 64 EDU). MusicXML can express a note of no time only as `<grace/>`, so that
+  is how these export.
 - An entry is a **rest** exactly when `numNotes == 0`; `read_entry` raises `MalformedEntryError` if
   `numNotes` disagrees with the actual number of nested `note` fields, so `is_rest ⟺ notes == ()`
   holds by construction rather than by convention.

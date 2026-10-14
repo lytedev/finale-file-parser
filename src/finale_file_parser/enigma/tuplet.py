@@ -101,11 +101,19 @@ class EntryChain:
 def read_tuplet(record: Record) -> Tuplet:
     """Read a `tupletDef` record.
 
+    **`refNum` may be zero**: "one 64th in the time of none". Its notes then
+    sound for no time at all, which is what the score means by it -- in the one
+    document that carries such tuplets (two, each on a 64th inserted into a run
+    of 64ths), both staves of the measure sum to exactly their 3/4 with the
+    inserted notes at zero and overflow by 64 EDU with the tuplet ignored. Every
+    other field is a divisor or a span and must stay positive.
+
     Raises:
-        CorruptScoreError: a required field is missing or not a positive integer.
+        CorruptScoreError: a required field is missing or not an integer, a
+            field other than `refNum` is not positive, or `refNum` is negative.
     """
 
-    def field(name: str) -> int:
+    def field(name: str, *, smallest_allowed: int = 1) -> int:
         raw = _scalar(record, name)
         if raw is None:
             raise CorruptScoreError(f"tupletDef is missing {name!r}")
@@ -113,14 +121,14 @@ def read_tuplet(record: Record) -> Tuplet:
             value = int(raw)
         except ValueError as exc:
             raise CorruptScoreError(f"tupletDef {name}={raw!r} is not an integer") from exc
-        if value <= 0:
-            raise CorruptScoreError(f"tupletDef {name}={value} must be positive")
+        if value < smallest_allowed:
+            raise CorruptScoreError(f"tupletDef {name}={value} must be at least {smallest_allowed}")
         return value
 
     return Tuplet(
         symbolic_number=field("symbolicNum"),
         symbolic_duration=field("symbolicDur"),
-        reference_number=field("refNum"),
+        reference_number=field("refNum", smallest_allowed=0),
         reference_duration=field("refDur"),
     )
 
