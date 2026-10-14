@@ -696,7 +696,20 @@ absence from the list (a `.mus` has no such list, and the containers must agree)
 for is **not** established — a hidden one-line staff of repeated quarter notes would fit a click
 track, rhythmic notation or a chord-symbol carrier equally well.
 
-Its entries are still placed by `locate_entries`, so nothing below the IR is lost.
+Its entries are still placed by `locate_entries`, so nothing below the IR is lost — except where
+Finale left the reserved staff behind when measures were deleted:
+
+| shape, in the 232 readable 2010-2012 `.mus` documents of a third-party collection | count | handling |
+| --- | --- | --- |
+| reserved-staff `gfhold` naming a measure past the last `measSpec` | 38 holds in 13 documents | skipped by `locate_entries`; their entries are not orphans |
+| real-staff `gfhold` past the last `measSpec`, with no frame | 2 holds in 1 document | skipped: it places nothing |
+| real-staff `gfhold` past the last `measSpec`, with a frame | **0** | still `MalformedScoreError` |
+| entries no `gfhold` reaches once all four layers are read | 164 in 5 documents, all reserved-staff quarter notes on its one pitch, 148 still `prev`/`next`-linked to placed reserved-staff entries | pruned by the `.mus` adapter, as in the 2001-2005 era |
+
+So the reserved staff is maintained lazily: its holds and frames outlive the measures they belonged
+to. That collection is NinSheetMusic transcriptions, outside `corpus/` and not committable; the
+synthetic tests in `tests/enigma/test_location.py` and `tests/enigma/test_mus_document.py` pin the
+rules instead. Evidence for the four-layer `gfhold` read is in `docs/formats/mus-binary-notes.md`.
 
 ### Known format facts — staff groups
 

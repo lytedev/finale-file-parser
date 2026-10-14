@@ -483,6 +483,117 @@ def test_measure_with_entries_but_no_measspec_key_raises() -> None:
         locate_entries(parse_enigma(doc))
 
 
+# One real measure on staff 1 (frame 10, entry 1). The reserved staff holds
+# measure 1 (frame 20, entry 2) and also measure 2 (frame 21, entry 3), which
+# has no measSpec: a measure deleted in Finale whose reserved-staff hold stayed.
+RESERVED_STAFF_HOLD_PAST_THE_LAST_MEASURE = _doc(
+    _entries("1:0", "2:0", "3:0")
+    + """
+    <others>
+      <frameSpec cmper="10" inci="0"><startEntry>1</startEntry><endEntry>1</endEntry></frameSpec>
+      <frameSpec cmper="20" inci="0"><startEntry>2</startEntry><endEntry>2</endEntry></frameSpec>
+      <frameSpec cmper="21" inci="0"><startEntry>3</startEntry><endEntry>3</endEntry></frameSpec>
+      <measSpec cmper="1"><keySig><key>0</key></keySig></measSpec>
+    </others>
+    <details>
+      <gfhold cmper1="1" cmper2="1"><frame1>10</frame1></gfhold>
+      <gfhold cmper1="32767" cmper2="1"><frame1>20</frame1></gfhold>
+      <gfhold cmper1="32767" cmper2="2"><frame1>21</frame1></gfhold>
+    </details>
+    """
+)
+
+
+def test_a_reserved_staff_hold_past_the_last_measure_places_nothing_and_orphans_nothing() -> None:
+    located = locate_entries(parse_enigma(RESERVED_STAFF_HOLD_PAST_THE_LAST_MEASURE))
+
+    places_by_entry = {
+        entnum: [(place.staff, place.measure) for place in places]
+        for entnum, places in located.items()
+    }
+    assert places_by_entry == {1: [(1, 1)], 2: [(32767, 1)]}, (
+        "the reserved staff's hold on measure 2 names a measure the score does not have, so "
+        "entry 3 must be neither placed there nor rejected as an orphan, while the live holds "
+        f"still place entries 1 and 2; got {places_by_entry}"
+    )
+
+
+def test_a_stale_reserved_staff_hold_is_still_walked_under_the_hostile_input_guards() -> None:
+    """Skipping a stale hold must not skip its checks: a frame it names that
+    does not exist is still malformed, as it is for a live hold."""
+    doc = _doc(
+        _entries("1:0")
+        + """
+        <others>
+          <frameSpec cmper="10" inci="0">
+            <startEntry>1</startEntry><endEntry>1</endEntry>
+          </frameSpec>
+          <measSpec cmper="1"><keySig><key>0</key></keySig></measSpec>
+        </others>
+        <details>
+          <gfhold cmper1="1" cmper2="1"><frame1>10</frame1></gfhold>
+          <gfhold cmper1="32767" cmper2="2"><frame1>99</frame1></gfhold>
+        </details>
+        """
+    )
+    with pytest.raises(MalformedScoreError, match="no matching frameSpec"):
+        locate_entries(parse_enigma(doc))
+
+
+def test_a_real_staff_hold_with_no_frame_past_the_last_measure_is_not_malformed() -> None:
+    """It names no frame, so it places nothing: there is no music to lose and
+    no key to fabricate."""
+    doc = _doc(
+        _entries("1:0")
+        + """
+        <others>
+          <frameSpec cmper="10" inci="0">
+            <startEntry>1</startEntry><endEntry>1</endEntry>
+          </frameSpec>
+          <measSpec cmper="1"><keySig><key>0</key></keySig></measSpec>
+        </others>
+        <details>
+          <gfhold cmper1="1" cmper2="1"><frame1>10</frame1></gfhold>
+          <gfhold cmper1="1" cmper2="2"><clefID>0</clefID></gfhold>
+        </details>
+        """
+    )
+    located = locate_entries(parse_enigma(doc))
+
+    measures_holding_music = sorted(
+        {place.measure for places in located.values() for place in places}
+    )
+    assert measures_holding_music == [1], (
+        "a frameless hold on deleted measure 2 must be read past, leaving measure 1's entry "
+        f"as the only music, but music was placed in measures {measures_holding_music}"
+    )
+
+
+def test_a_real_staff_frame_past_the_last_measure_still_raises() -> None:
+    """Unlike the reserved staff's, a real staff's music in a measure the score
+    lacks has never been seen, and skipping it would drop music silently."""
+    doc = _doc(
+        _entries("1:0", "2:0")
+        + """
+        <others>
+          <frameSpec cmper="10" inci="0">
+            <startEntry>1</startEntry><endEntry>1</endEntry>
+          </frameSpec>
+          <frameSpec cmper="11" inci="0">
+            <startEntry>2</startEntry><endEntry>2</endEntry>
+          </frameSpec>
+          <measSpec cmper="1"><keySig><key>0</key></keySig></measSpec>
+        </others>
+        <details>
+          <gfhold cmper1="1" cmper2="1"><frame1>10</frame1></gfhold>
+          <gfhold cmper1="1" cmper2="2"><frame1>11</frame1></gfhold>
+        </details>
+        """
+    )
+    with pytest.raises(MalformedScoreError, match="measure 2, which has no measSpec key"):
+        locate_entries(parse_enigma(doc))
+
+
 def test_part_variant_framespec_is_ignored() -> None:
     """A linked-part frameSpec incidence must not re-place the score's entries.
     all_with returns part variants; resolution filters them out."""

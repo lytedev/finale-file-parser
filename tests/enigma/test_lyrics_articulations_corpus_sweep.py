@@ -23,7 +23,7 @@ import pytest
 from conftest import PairedCorpus
 from corpus_files import oracle_pairs
 
-from finale_file_parser.enigma.to_ir import RESERVED_STAFF
+from finale_file_parser.enigma.location import RESERVED_STAFF
 from finale_file_parser.ir import Lyric, Score
 
 CORPUS = Path(__file__).parent.parent.parent / "corpus"

@@ -19,7 +19,8 @@ from finale_file_parser.enigma.document import (
     TextsPool,
 )
 from finale_file_parser.enigma.groups import staff_groups, staff_order
-from finale_file_parser.enigma.to_ir import RESERVED_STAFF, _groups, _ordered_staves
+from finale_file_parser.enigma.location import RESERVED_STAFF
+from finale_file_parser.enigma.to_ir import _groups, _ordered_staves
 
 EMPTY: tuple[Record, ...] = ()
 

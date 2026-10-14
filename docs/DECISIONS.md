@@ -10,6 +10,30 @@ and resolved ones **DECIDED**.
 
 ---
 
+## 2026-10-14 — DECIDED: a 2011-2012 `.mus` prunes unreached entries; stale reserved-staff holds are skipped
+
+Two rules, both from 22 NinSheetMusic `.mus` files (third-party, outside `corpus/`) that failed to
+build. Evidence and counts: `docs/ARCHITECTURE.md`, "the reserved staff 32767".
+
+- **`locate_entries` skips a `gfhold` whose measure has no `measSpec`** when it is on staff 32767 or
+  names no frame, and does not count the entries such a hold reaches as orphans. A real staff's hold
+  that names a frame in such a measure still raises: nothing in the evidence shows one, and dropping
+  it would lose music silently. This applies to `.musx` too; no corpus `.musx` was affected, since
+  all 401 already resolved.
+- **The 2011-2012 `.mus` adapter prunes entries no hold reaches**, the rule `_live_entries` already
+  applied to the 2001-2005 era. This reverses that function's earlier note that the orphan check
+  "still fires for 2011 `.mus`". The orphan check is what found the unread `frame3`/`frame4` slots,
+  and pruning means a similar reader gap would now pass silently in that era. The alternative,
+  tolerating only orphans linked by `prev`/`next` to placed reserved-staff entries, was rejected: 16
+  of the 164 leftovers link to nothing, so that rule still fails one file, and its content (quarter
+  notes on the reserved staff's one pitch) is no different from the other 148.
+
+**OPEN:** the 2011-2012 era has no corpus pin on how many entries it discards. The 2001-2005 era's
+pin is `EXPECTED_DEAD_ENTRIES` in `tests/enigma/test_mus_dcl_score_corpus_sweep.py`. An owner with
+`corpus/` should run `make check-full` and add the equivalent pin for the 2011-2012 cohort.
+`DOCUMENTS_THAT_BUILD` and other build-count pins may also rise, because a corpus document that
+failed for these reasons now builds.
+
 ## 2026-08-20 — DECIDED: PDF export goes through svglib, behind an optional extra
 
 `finale-parser convert --format pdf` writes an engraved score as PDF. The route is

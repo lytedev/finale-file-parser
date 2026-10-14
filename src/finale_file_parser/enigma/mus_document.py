@@ -343,23 +343,42 @@ def read_mus_document(path: str | os.PathLike[str]) -> EnigmaDocument:
         if any(pool.kind is not None for pool in read_mus_pools(path)):
             return _rows_document(path)
         raise
+    others_records = tuple(
+        _others_records(others, _FALLBACK_ENCODING.get(_banner_platform(path) or "", "cp1252"))
+    )
+    details_records = _details_records(details)
+    gfholds = [record for record in details_records if record.tag == "gfhold"]
     return EnigmaDocument(
         version=_VERSION,
         header=Pool(records=_EMPTY),
         mappings=Pool(records=_EMPTY),
         options=OptionsPool(records=tuple(_options_records(others, _banner_year(path)))),
-        others=OthersPool(
-            records=tuple(
-                _others_records(
-                    others,
-                    _FALLBACK_ENCODING.get(_banner_platform(path) or "", "cp1252"),
-                )
+        others=OthersPool(records=others_records),
+        details=DetailsPool(records=tuple(details_records)),
+        entries=EntriesPool(
+            records=_live_entries_or_refuse(
+                path, read_mus_entry_records(path), _frame_spans(others_records), gfholds
             )
         ),
-        details=DetailsPool(records=tuple(_details_records(details))),
-        entries=EntriesPool(records=read_mus_entry_records(path)),
         texts=TextsPool(records=tuple(_texts_records(path))),
     )
+
+
+def _frame_spans(others_records: tuple[Record, ...]) -> dict[int, tuple[int, int, int | None]]:
+    """Each score `frameSpec`'s entry span, in the shape `_live_entries` reads.
+
+    Built from the translated records rather than the raw payloads, so the 2011
+    era prunes against exactly the frames `locate_entries` will walk.
+    """
+    spans: dict[int, tuple[int, int, int | None]] = {}
+    for record in others_records:
+        if record.tag != "frameSpec" or "part" in record.attrs:
+            continue
+        start = record.fields.get("startEntry")
+        end = record.fields.get("endEntry")
+        if isinstance(start, str) and isinstance(end, str):
+            spans[int(record.attrs["cmper"])] = (int(start), int(end), None)
+    return spans
 
 
 _FRAME_BASE_2001 = 4
@@ -421,16 +440,7 @@ def _rows_document(path: str | os.PathLike[str]) -> EnigmaDocument:
     live = {int(record.attrs["entnum"]) for record in entries}
     frames, dropped = _rows_frames(rows, live)
     gfholds = _rows_details(rows, dropped)
-    kept = _live_entries(entries, frames, gfholds)
-    if entries and not kept:
-        # The pool holds music but no frame reaches any of it. Pruning would
-        # leave an empty pool and `build_score` would return a Score with no
-        # parts -- a silent nothing, which is worse than saying so. Three corpus
-        # documents are like this: they carry a frame hold, so they do not fall
-        # to the check above, but nothing it names resolves.
-        raise CorruptScoreError(
-            f"{path} has {len(entries)} entries but no frame reaches any of them"
-        )
+    kept = _live_entries_or_refuse(path, entries, frames, gfholds)
     return EnigmaDocument(
         version=_VERSION,
         header=Pool(records=_EMPTY),
@@ -441,6 +451,27 @@ def _rows_document(path: str | os.PathLike[str]) -> EnigmaDocument:
         entries=EntriesPool(records=kept),
         texts=TextsPool(records=tuple(_texts_records(path))),
     )
+
+
+def _live_entries_or_refuse(
+    path: str | os.PathLike[str],
+    entries: tuple[Record, ...],
+    frames: dict[int, tuple[int, int, int | None]],
+    gfholds: list[Record],
+) -> tuple[Record, ...]:
+    """`_live_entries`, refusing a pool that holds music no frame reaches at all.
+
+    Pruning such a pool would leave it empty and `build_score` would return a
+    Score with no parts -- a silent nothing, which is worse than saying so.
+    Three 2001-2005 corpus documents are like this: they carry a frame hold, but
+    nothing it names resolves.
+    """
+    kept = _live_entries(entries, frames, gfholds)
+    if entries and not kept:
+        raise CorruptScoreError(
+            f"{path} has {len(entries)} entries but no frame reaches any of them"
+        )
+    return kept
 
 
 def _live_entries(
@@ -462,13 +493,24 @@ def _live_entries(
     explanation. One document keeps entries 1-858 as a stale copy of the live
     859-1717, 824 of them identical field for field.
 
+    **The 2011-2012 era is written in place too, and is pruned the same way.**
+    In a third-party collection of 232 readable 2010-2012 `.mus` documents, once
+    all four layers are read (`_GFHOLD_FRAME_OFFSETS`), the entries no hold
+    reaches number 164 across 5 documents, and every one is the reserved
+    staff's leftovers: a quarter note on the same single pitch the reserved
+    staff's placed entries carry in that document, in a frame no `gfhold`
+    names, and 148 of them still `prev`/`next`-linked to entries the reserved
+    staff does place. That is the shape of a reserved staff rebuilt after
+    measures were deleted, not of music the reader misses.
+
     Dropping them here rather than tolerating them downstream keeps
-    `locate_entries`' orphan check meaning what it says in both eras: an entry no
-    frame places is still an error there, and it still fires for `.musx` and for
-    2011 `.mus`. What stops this from hiding a real misplacement is that the
+    `locate_entries`' orphan check meaning what it says: an entry no frame
+    places is still an error there, and it still fires for `.musx`. What stops
+    this from hiding a real misplacement is, for the 2001-2005 era, that the
     corpus sweep pins how many entries it discards -- a reader that stopped
     reaching music would discard more, and the pin only permits fewer. See
-    `docs/formats/mus-dcl-container.md`.
+    `docs/formats/mus-dcl-container.md`. The 2011-2012 era has no such pin yet;
+    see `docs/DECISIONS.md`.
     """
     by_num = {int(record.attrs["entnum"]): record for record in entries}
     reached: set[int] = set()

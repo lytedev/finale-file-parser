@@ -76,6 +76,36 @@ not a tuning parameter -- and a document past it is refused with
 `MalformedScoreError`, the same answer a bad cmper already gets.
 """
 
+RESERVED_STAFF = 0x7FFF
+"""A staff id Finale reserves rather than lays out: 32767, the same sentinel the
+format uses for "to the end" in `staffGroup.endMeas`.
+
+Every one of the 401 corpus documents declares it, and no document treats it as
+part of the score:
+
+* it is **never** in the score's instrument list (0 of 401), which is what
+  `instUsed` is -- the layout of the staves the score shows;
+* it is **never** named by a staff group (0 of 401);
+* its `staffSpec` is a template rather than a description of a part -- 401
+  documents hold just two distinct bodies, all with the same fixed `instUuid`,
+  a one-line `customStaff`, and clefs, key signatures, measure numbers, repeats
+  and repeat barlines all hidden;
+* in the 398 buildable documents measured when this rule was established, 376
+  gave it a single repeated pitch, always in layer 1, and none carried a lyric;
+  the final three documents became buildable later and were not part of that
+  content count.
+
+It is also the **only** staff in the corpus absent from the instrument list, so
+excluding it excludes nothing else. What Finale actually uses it for is not
+known and this does not guess; what is established is that it is not a part of
+the score, and exporting it put a spurious "Staff 32767" into every file this
+project produced. Its entries are still placed by `locate_entries`, so nothing
+below the IR is lost -- with one exception, `_holds_a_measure_the_score_lacks`.
+
+Lives here rather than in `to_ir`, which uses it to make no part for it, because
+location resolution needs it first and `to_ir` already depends on this module.
+"""
+
 _MAX_PLACEMENTS_PER_ENTRY = 64
 """Places **one entry** may be placed in.
 
@@ -114,8 +144,10 @@ class MalformedScoreError(FinaleFileError):
     layer, not an error), an entry placed twice at the same staff, measure
     and layer (an entry in several *different* places is a mirror, and is
     legal), a `next`-chain that exceeds the guard (a cycle), an entry
-    placed in more than `_MAX_PLACEMENTS_PER_ENTRY` places, or `measSpec`
-    cmpers spanning more than `_MAX_MEASURE_SPAN` measures.
+    placed in more than `_MAX_PLACEMENTS_PER_ENTRY` places, `measSpec`
+    cmpers spanning more than `_MAX_MEASURE_SPAN` measures, or a real staff's
+    `gfhold` naming a frame in a measure that has no `measSpec` (the reserved
+    staff's are stale, not malformed: see `_holds_a_measure_the_score_lacks`).
     """
 
 
@@ -184,13 +216,15 @@ def locate_entries(doc: EnigmaDocument) -> dict[int, tuple[EntryLocation, ...]]:
             frame points at a missing `frameSpec`, a `keySig.key` or
             `startEntry`/`endEntry` is not an integer, an entry is placed
             twice at one (staff, measure, layer), a `next`-chain exceeds
-            the guard, or one entry is placed in more places than
-            `_MAX_PLACEMENTS_PER_ENTRY` allows.
+            the guard, one entry is placed in more places than
+            `_MAX_PLACEMENTS_PER_ENTRY` allows, or a real staff's frame sits
+            in a measure with no `measSpec`.
     """
     entries_by_num = {_int(e.attrs.get("entnum"), "entnum"): e for e in doc.entries.of_tag("entry")}
     key_by_measure = effective_keys(doc)
 
     placements = _Placements()
+    held_only_past_the_score = _Placements()
     for gfhold in doc.details.of_tag("gfhold"):
         # Score records only. A linked-part gfhold would place the same entries
         # a second time and trip the double-place check; the score placement is
@@ -200,32 +234,85 @@ def locate_entries(doc: EnigmaDocument) -> dict[int, tuple[EntryLocation, ...]]:
             continue
         staff = _int(gfhold.attrs.get("cmper1"), "gfhold cmper1")
         measure = _int(gfhold.attrs.get("cmper2"), "gfhold cmper2")
+        frames_by_layer = _frames_by_layer(gfhold)
         if measure not in key_by_measure:
-            # A measure that holds entries but defines no key is malformed: this
-            # is the foundation every later slice reads its key from, so fabricate
-            # nothing — raise rather than silently return C major.
+            if _holds_a_measure_the_score_lacks(staff, frames_by_layer):
+                # Walked with every guard, so a hostile stale hold costs what a
+                # live one does, but never placed: the measure is not in the
+                # score. Its key is never read, so 0 is a placeholder, not C major.
+                for layer, frame_cmper in frames_by_layer:
+                    _place_frame_entries(
+                        doc,
+                        frame_cmper,
+                        staff,
+                        measure,
+                        layer,
+                        0,
+                        entries_by_num,
+                        held_only_past_the_score,
+                    )
+                continue
+            # A real staff's measure that holds entries but defines no key is
+            # malformed: this is the foundation every later slice reads its key
+            # from, so fabricate nothing — raise rather than silently return C major.
             raise MalformedScoreError(
                 f"gfhold places entries in measure {measure}, which has no measSpec key"
             )
         key_signature = key_by_measure[measure]
-        for layer, field_name in enumerate(_FRAME_FIELDS, start=1):
-            frame_value = gfhold.fields.get(field_name)
-            if not isinstance(frame_value, str) or frame_value in ("", "0"):
-                # An absent, empty, or "0" frame slot is an unused layer, not a
-                # frame — skip it. Real files omit unused slots, but Enigma may
-                # also write 0; either way it names no frameSpec.
-                continue
-            frame_cmper = _int(frame_value, field_name)
+        for layer, frame_cmper in frames_by_layer:
             _place_frame_entries(
                 doc, frame_cmper, staff, measure, layer, key_signature, entries_by_num, placements
             )
 
-    orphans = set(entries_by_num) - set(placements.by_entry)
+    orphans = (
+        set(entries_by_num) - set(placements.by_entry) - set(held_only_past_the_score.by_entry)
+    )
     if orphans:
         raise MalformedScoreError(
             f"{len(orphans)} orphan entry(ies) not placed by any frame: {sorted(orphans)}"
         )
     return {entnum: tuple(places) for entnum, places in placements.by_entry.items()}
+
+
+def _frames_by_layer(gfhold: Record) -> list[tuple[int, int]]:
+    """(layer, frame cmper) for each of the gfhold's frame slots that names a frame.
+
+    An absent, empty, or "0" frame slot is an unused layer, not a frame. Real
+    files omit unused slots, but Enigma may also write 0; either way it names
+    no frameSpec.
+    """
+    named: list[tuple[int, int]] = []
+    for layer, field_name in enumerate(_FRAME_FIELDS, start=1):
+        frame_value = gfhold.fields.get(field_name)
+        if not isinstance(frame_value, str) or frame_value in ("", "0"):
+            continue
+        named.append((layer, _int(frame_value, field_name)))
+    return named
+
+
+def _holds_a_measure_the_score_lacks(staff: int, frames_by_layer: list[tuple[int, int]]) -> bool:
+    """Whether a gfhold whose measure has no `measSpec` is stale rather than malformed.
+
+    **Finale deletes measures without deleting every hold on them.** In 13 of
+    the 232 readable 2010-2012 `.mus` documents of a third-party collection
+    (outside `corpus/`; see `docs/ARCHITECTURE.md`), `gfhold` records name
+    measures past the last `measSpec` -- 40 such holds in all -- and every one
+    is either
+
+    * on `RESERVED_STAFF` (38 of them, each naming a frame), whose holds Finale
+      evidently does not prune along with the score's own; or
+    * on a real staff with **no frame at all** (2, staves 1 and 2 of one
+      document at its deleted last measure): a hold that places nothing, so
+      nothing is lost by reading past it.
+
+    No hold on a real staff with a frame ever names a missing measure there,
+    so that case still raises -- it would be music with no measure to sit in,
+    and dropping it would be silent loss rather than tidying. The reserved
+    staff is not exported (see `RESERVED_STAFF`), so skipping its stale holds
+    loses nothing the score shows; its entries reached only that way are not
+    orphans either, because a frame does hold them, just not in the score.
+    """
+    return staff == RESERVED_STAFF or not frames_by_layer
 
 
 def effective_keys(doc: EnigmaDocument) -> dict[int, int]:

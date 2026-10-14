@@ -21,6 +21,7 @@ from finale_file_parser.enigma.articulations import articulations_by_entry
 from finale_file_parser.enigma.clef import ClefSign, clef_definitions
 from finale_file_parser.enigma.document import Record
 from finale_file_parser.enigma.groups import staff_order
+from finale_file_parser.enigma.models import CorruptScoreError
 from finale_file_parser.enigma.mus_details import (
     TAG_ARTIC_ASSIGN,
     TAG_LYRIC_VERSE,
@@ -180,8 +181,44 @@ def test_an_empty_layer_slot_is_omitted(pools: Callable[..., None]) -> None:
 
 def test_passes_entry_records_through(pools: Callable[..., None]) -> None:
     entry = Record(tag="entry", attrs={"entnum": "9"}, text="", fields={"dura": "1024"})
-    pools(entries=(entry,))
+    pools(
+        others=(MusOther(FRAME_SPEC, 3, 0, entry_pair(9, 9)),),
+        details=(MusDetailRecord(GFHOLD, 1, 1, 0, gfhold_payload(0, 3)),),
+        entries=(entry,),
+    )
     assert read_mus_document(PATH).entries.get(9) is entry
+
+
+def test_a_2011_document_drops_the_entries_no_frame_reaches(pools: Callable[..., None]) -> None:
+    """The 2011-2012 pool is written in place like the 2001-2005 one: Finale
+    leaves the reserved staff's frames from deleted measures behind, and no
+    gfhold names them. They are not music, and `locate_entries` would reject
+    them as orphans."""
+    reached = Record(tag="entry", attrs={"entnum": "9"}, text="", fields={"dura": "1024"})
+    left_behind = Record(tag="entry", attrs={"entnum": "50"}, text="", fields={"dura": "1024"})
+    pools(
+        others=(
+            MusOther(FRAME_SPEC, 3, 0, entry_pair(9, 9)),
+            MusOther(FRAME_SPEC, 4, 0, entry_pair(50, 50)),
+        ),
+        details=(MusDetailRecord(GFHOLD, 1, 1, 0, gfhold_payload(0, 3)),),
+        entries=(reached, left_behind),
+    )
+    kept = [record.attrs["entnum"] for record in read_mus_document(PATH).entries.records]
+    assert kept == ["9"], (
+        f"only entry 9 is reached through a gfhold; entry 50's frame is named by none, "
+        f"so it must be dropped, but the pool kept {kept}"
+    )
+
+
+def test_a_2011_document_whose_frames_reach_none_of_its_entries_is_refused(
+    pools: Callable[..., None],
+) -> None:
+    """Pruning everything would build a Score with no parts -- a silent nothing."""
+    entry = Record(tag="entry", attrs={"entnum": "9"}, text="", fields={"dura": "1024"})
+    pools(entries=(entry,))
+    with pytest.raises(CorruptScoreError, match="no frame reaches any of them"):
+        read_mus_document(PATH)
 
 
 def test_tagged_file_info_reaches_the_score(monkeypatch: pytest.MonkeyPatch) -> None:

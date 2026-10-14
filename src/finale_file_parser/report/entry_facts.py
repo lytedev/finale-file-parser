@@ -295,7 +295,10 @@ def placements_by_entry(
     """Walk gfhold -> frameSpec -> entry chain, recording breaks instead of raising.
 
     Mirrors `locate_entries`, and deliberately: see the module docstring. The
-    differences are all in what happens when something is wrong.
+    differences are all in what happens when something is wrong, plus one:
+    a reserved-staff hold on a measure the score lacks, which `locate_entries`
+    skips as stale, is still reported here, because this walk reads no
+    `measSpec` and shows what the file holds.
 
     The entry range is walked by following each entry's `next` attribute, the
     same as `locate_entries._walk_entry_chain` -- not by treating

@@ -28,7 +28,7 @@ from finale_file_parser.enigma.fingerings import fingerings_by_entry
 from finale_file_parser.enigma.groups import staff_groups, staff_order
 from finale_file_parser.enigma.jumps import jumps_by_measure
 from finale_file_parser.enigma.key import Mode, decode_key
-from finale_file_parser.enigma.location import effective_keys, locate_entries
+from finale_file_parser.enigma.location import RESERVED_STAFF, effective_keys, locate_entries
 from finale_file_parser.enigma.lyrics import Lyric as EnigmaLyric
 from finale_file_parser.enigma.lyrics import lyrics_by_entry
 from finale_file_parser.enigma.music import read_entry
@@ -197,34 +197,6 @@ def build_score(document: EnigmaDocument) -> Score:
         composer=info.get("composer", ""),
         metadata={k: v for k, v in info.items() if k not in {"title", "composer"}},
     )
-
-
-RESERVED_STAFF = 0x7FFF
-"""A staff id Finale reserves rather than lays out: 32767, the same sentinel the
-format uses for "to the end" in `staffGroup.endMeas`.
-
-Every one of the 401 corpus documents declares it, and no document treats it as
-part of the score:
-
-* it is **never** in the score's instrument list (0 of 401), which is what
-  `instUsed` is -- the layout of the staves the score shows;
-* it is **never** named by a staff group (0 of 401);
-* its `staffSpec` is a template rather than a description of a part -- 401
-  documents hold just two distinct bodies, all with the same fixed `instUuid`,
-  a one-line `customStaff`, and clefs, key signatures, measure numbers, repeats
-  and repeat barlines all hidden;
-* in the 398 buildable documents measured when this rule was established, 376
-  gave it a single repeated pitch, always in layer 1, and none carried a lyric;
-  the final three documents became buildable later and were not part of that
-  content count.
-
-It is also the **only** staff in the corpus absent from the instrument list, so
-excluding it excludes nothing else. What Finale actually uses it for is not
-known and this does not guess; what is established is that it is not a part of
-the score, and exporting it put a spurious "Staff 32767" into every file this
-project produced. Its entries are still placed by `locate_entries`, so nothing
-below the IR is lost.
-"""
 
 
 def _measure_numbers(keys: dict[int, int], cells: dict[tuple[int, int], _Cell]) -> list[int]:

@@ -975,3 +975,49 @@ def test_many_gfholds_naming_one_crowded_frame_do_not_cost_their_product() -> No
     # for the same reason: a tighter bound would flake on a loaded machine.
     assert elapsed < 2.0, f"the walk took {elapsed:.2f}s -- looks quadratic again"
     assert len(places[9]) == _MAX_PLACEMENTS_PER_ENTRY
+
+
+def test_the_report_still_shows_a_stale_reserved_staff_hold_that_locate_entries_skips() -> None:
+    """The one deliberate difference between the two walks.
+
+    `locate_entries` skips a reserved-staff hold on a measure the score lacks
+    (a measure Finale deleted without pruning that staff's hold), because the
+    measure is not in the score. The report shows what the file says, so a
+    reader can see where the leftover entry is still held.
+    """
+    live_hold = Record(
+        tag="gfhold", attrs={"cmper1": "32767", "cmper2": "1"}, text="", fields={"frame1": "20"}
+    )
+    stale_hold = Record(
+        tag="gfhold", attrs={"cmper1": "32767", "cmper2": "2"}, text="", fields={"frame1": "21"}
+    )
+    frames = tuple(
+        Record(
+            tag="frameSpec",
+            attrs={"cmper": cmper},
+            text="",
+            fields={"startEntry": entnum, "endEntry": entnum},
+        )
+        for cmper, entnum in (("20", "8"), ("21", "9"))
+    )
+    entries = tuple(
+        Record(tag="entry", attrs={"entnum": entnum}, text="", fields={"dura": "1024"})
+        for entnum in ("8", "9")
+    )
+    document = _doc(
+        details=(live_hold, stale_hold),
+        others=(*frames, _measure("1", "0")),
+        entries=entries,
+    )
+
+    located = locate_entries(document)
+    placements, _ = placements_by_entry(document)
+
+    assert 9 not in located, (
+        f"entry 9 is held only in deleted measure 2, so it must not be placed, but got {located}"
+    )
+    report_places_for_entry_9 = [(p.staff, p.measure) for p in placements[9]]
+    assert report_places_for_entry_9 == [(32767, 2)], (
+        "the report must still show the file's own hold for entry 9 at staff 32767 measure 2, "
+        f"but it shows {report_places_for_entry_9}"
+    )
