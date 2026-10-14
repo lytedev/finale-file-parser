@@ -707,7 +707,16 @@ Finale left the reserved staff behind when measures were deleted:
 | entries no `gfhold` reaches once all four layers are read | 164 in 5 documents, all reserved-staff quarter notes on its one pitch, 148 still `prev`/`next`-linked to placed reserved-staff entries | pruned by the `.mus` adapter, as in the 2001-2005 era |
 
 So the reserved staff is maintained lazily: its holds and frames outlive the measures they belonged
-to. That collection is NinSheetMusic transcriptions, outside `corpus/` and not committable; the
+to. The rule held when it was retested with readers that open more of the collection. With vacant
+entry slots skipped, 246 documents read, and the counts are:
+- 315 holds past the last `measSpec`, in 27 documents. 276 are reserved-staff holds, all with a
+  frame. 39 are real-staff holds with no frame. None is a real-staff hold with a frame.
+- 520 unreached entries in 16 documents, every one matching its document's reserved-staff duration
+  and pitch. 395 are linked to placed reserved-staff entries and 125 to nothing. None is linked to a
+  real staff.
+
+With irregular EDU durations decoded, the hidden 85-EDU chains that looked like orphans in four
+documents turn out to be layer 3 and 4 frames. Every one of their 37 cells fills its measure exactly. That collection is NinSheetMusic transcriptions, outside `corpus/` and not committable; the
 synthetic tests in `tests/enigma/test_location.py` and `tests/enigma/test_mus_document.py` pin the
 rules instead. Evidence for the four-layer `gfhold` read is in `docs/formats/mus-binary-notes.md`.
 
