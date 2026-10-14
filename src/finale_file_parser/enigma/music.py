@@ -36,6 +36,11 @@ class NoteValue(Enum):
     corpus document uses it. Nothing longer is listed: a longa would be the next
     value up and no corpus document carries one, so there is nothing to check a
     guess at it against.
+
+    The short end stops at the 1024th, the shortest MusicXML `<type>`. The
+    256th and 512th are not ornament: NinSheetMusic documents pad runs of hidden
+    85-EDU playback notes out to the barline with hidden 16- and 8-EDU rests
+    (48 x 85 + 16 = 4096, a 4/4 bar).
     """
 
     BREVE = 8192
@@ -47,11 +52,21 @@ class NoteValue(Enum):
     THIRTY_SECOND = 128
     SIXTY_FOURTH = 64
     ONE_TWENTY_EIGHTH = 32
+    TWO_FIFTY_SIXTH = 16
+    FIVE_TWELFTH = 8
+    ONE_THOUSAND_TWENTY_FOURTH = 4
 
 
 @dataclass(frozen=True)
 class Duration:
-    """A written duration: a base note value plus augmentation dots."""
+    """A written duration: a base note value plus augmentation dots.
+
+    `edu` is the length Finale stores and times the entry by. `base` and `dots`
+    are what Finale *draws*, and for almost every entry the two agree. They part
+    where a file stores a length no dotted note value equals -- see
+    `duration_from_edu` -- and then `notated_edu` is the drawn value and `edu`
+    the timed one.
+    """
 
     edu: int
     base: NoteValue
@@ -61,6 +76,16 @@ class Duration:
     def whole_notes(self) -> Fraction:
         """The duration as a fraction of a whole note (edu / 4096)."""
         return Fraction(self.edu, _WHOLE_EDU)
+
+    @property
+    def notated_edu(self) -> int:
+        """The EDU of the drawn note value: `base` plus each dot's half of the last."""
+        return sum(self.base.value >> dot for dot in range(self.dots + 1))
+
+    @property
+    def is_notated_exactly(self) -> bool:
+        """Whether the drawn note value is exactly the stored length."""
+        return self.notated_edu == self.edu
 
 
 @dataclass(frozen=True)
@@ -122,30 +147,34 @@ def duration_from_edu(edu: int) -> Duration:
     Shared by the `.musx` and `.mus` readers: both formats store the same EDU
     quantity, so the decode belongs in one place rather than being reimplemented
     per container.
+
+    **The base is the highest set bit, and each dot is a further set bit directly
+    below it.** For an ordinary dotted value that is simply its decode. For a
+    length no dotted note value equals -- Finale stores whatever a MIDI import,
+    *Change Note Durations* or a hand-edited entry leaves behind -- the bits
+    below the first clear one are not drawn: 576 (512 + 64) draws as an eighth,
+    85 (64 + 16 + 4 + 1) as a 64th, 3328 (2048 + 1024 + 256) as a dotted half.
+    `Duration.edu` keeps the stored length, so timing is not rounded.
+
+    The rule is the musx object model's `calcDurationInfoFromEdu`,
+    https://github.com/rpatters1/musx-object-model/blob/deda69c1a8622c4268000f8c3e8df460ddef41a8/src/musx/dom/Entries.cpp#L173-L194
+    -- the one reading of such durations this project can point to. Refusing
+    them instead stopped eight NinSheetMusic documents at their first such
+    entry.
     """
     # The limit belongs on the base value, not on the total: every dotted note
     # exceeds its own base, so testing the total rejected a dotted whole (6144)
     # for being "larger than a whole note".
     if edu <= 0 or edu > _MAX_DURATION_EDU:
         raise MalformedEntryError(f"dura {edu} is out of range")
-    base_edu = _LONGEST_EDU
-    while base_edu > edu:
-        base_edu //= 2
-    total = base_edu
-    add = base_edu
+    base_edu = 1 << (edu.bit_length() - 1)
     dots = 0
-    while total < edu:
-        add //= 2
-        if add == 0:
-            raise MalformedEntryError(f"dura {edu} does not decode to a note value")
-        total += add
+    while (base_edu >> (dots + 1)) & edu:
         dots += 1
-    if total != edu:
-        raise MalformedEntryError(f"dura {edu} does not decode to a note value")
     try:
         base = NoteValue(base_edu)
     except ValueError as exc:
-        raise MalformedEntryError(f"dura {edu} base has no note value") from exc
+        raise MalformedEntryError(f"dura {edu} is shorter than any note value") from exc
     return Duration(edu=edu, base=base, dots=dots)
 
 

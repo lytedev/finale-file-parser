@@ -51,6 +51,8 @@ _NOTE_TYPES = {
     64: "64th",
     128: "128th",
     256: "256th",
+    512: "512th",
+    1024: "1024th",
 }
 """Denominator of the written value as a fraction of a whole note -> MusicXML type."""
 

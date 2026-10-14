@@ -117,10 +117,16 @@ def test_rejects_non_integer_dura() -> None:
         read_entry(_entry("notanumber"))
 
 
-def test_rejects_undecodable_dura() -> None:
-    # 1000 is not a base power-of-two note value plus dots
-    with pytest.raises(MalformedEntryError, match="decode"):
-        read_entry(_entry("1000", (_note("0"),)))
+def test_rejects_a_dura_shorter_than_every_note_value() -> None:
+    """Below a 1024th (4 EDU) MusicXML has no `<type>` to draw it with."""
+    with pytest.raises(MalformedEntryError, match="shorter than any note value"):
+        read_entry(_entry("3", (_note("0"),)))
+
+
+def test_rejects_a_zero_dura() -> None:
+    """An entry that sounds for no time is a grace note, which says so by flag."""
+    with pytest.raises(MalformedEntryError, match="out of range"):
+        read_entry(_entry("0", (_note("0"),)))
 
 
 def test_rejects_numnotes_disagreeing_with_note_count() -> None:
@@ -166,6 +172,64 @@ def test_a_longa_is_still_refused() -> None:
         duration_from_edu(16384)
 
 
-def test_a_value_between_note_values_is_still_refused() -> None:
-    with pytest.raises(MalformedEntryError):
-        duration_from_edu(9000)
+@pytest.mark.parametrize(
+    ("stored_edu", "drawn_base", "drawn_dots", "drawn_edu"),
+    [
+        (576, NoteValue.EIGHTH, 0, 512),
+        (85, NoteValue.SIXTY_FOURTH, 0, 64),
+        (704, NoteValue.EIGHTH, 0, 512),
+        (3328, NoteValue.HALF, 1, 3072),
+        (1000, NoteValue.EIGHTH, 4, 992),
+        (9000, NoteValue.BREVE, 0, 8192),
+    ],
+)
+def test_a_length_between_note_values_draws_its_leading_run_of_bits_and_keeps_its_length(
+    stored_edu: int, drawn_base: NoteValue, drawn_dots: int, drawn_edu: int
+) -> None:
+    """The highest set bit is the note value and each set bit directly below it a dot.
+
+    Finale stores such lengths (576 = 512 + 64 is an eighth plus a 64th's worth
+    of time) and draws the note value they begin with; the stored length must
+    survive untouched, since it is what the entry is timed by.
+    """
+    duration = duration_from_edu(stored_edu)
+    assert (duration.base, duration.dots) == (drawn_base, drawn_dots), (
+        f"{stored_edu} EDU must draw as {drawn_base.name} with {drawn_dots} dot(s), "
+        f"but drew as {duration.base.name} with {duration.dots}"
+    )
+    assert duration.notated_edu == drawn_edu, (
+        f"the drawn value of {stored_edu} EDU is {drawn_edu} EDU, not {duration.notated_edu}"
+    )
+    assert duration.edu == stored_edu, (
+        f"the stored length {stored_edu} must be kept for timing, but became {duration.edu}"
+    )
+    assert not duration.is_notated_exactly, (
+        f"{stored_edu} EDU is not a dotted note value, so it cannot be notated exactly"
+    )
+
+
+@pytest.mark.parametrize("stored_edu", [32, 1024, 1536, 3584, 6144, 8192, 12288])
+def test_every_dotted_note_value_is_notated_exactly(stored_edu: int) -> None:
+    duration = duration_from_edu(stored_edu)
+    assert duration.is_notated_exactly, (
+        f"{stored_edu} EDU is a dotted note value and must draw as itself, "
+        f"but drew as {duration.notated_edu} EDU"
+    )
+
+
+@pytest.mark.parametrize(
+    ("stored_edu", "drawn_base"),
+    [
+        (16, NoteValue.TWO_FIFTY_SIXTH),
+        (8, NoteValue.FIVE_TWELFTH),
+        (4, NoteValue.ONE_THOUSAND_TWENTY_FOURTH),
+    ],
+)
+def test_note_values_reach_down_to_the_shortest_musicxml_type(
+    stored_edu: int, drawn_base: NoteValue
+) -> None:
+    """Hidden 16- and 8-EDU rests pad hidden 85-EDU runs to the barline in real files."""
+    duration = duration_from_edu(stored_edu)
+    assert duration.base is drawn_base, (
+        f"{stored_edu} EDU must decode as {drawn_base.name}, but decoded as {duration.base.name}"
+    )

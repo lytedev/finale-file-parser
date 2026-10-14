@@ -120,8 +120,9 @@ class Event:
     zero, which its schema rejects.
     """
     tuplet_ratio: Fraction | None = None
-    """Sounded over written, when this event is inside a tuplet. 2/3 for a
-    triplet. None outside one."""
+    """Sounded over written, when the two differ. 2/3 for a triplet; 576/512 for
+    an entry Finale stores as 576 EDU and draws as an eighth. None when the
+    event sounds exactly what it shows."""
 
     lyrics: tuple[Lyric, ...] = ()
     """Syllables sung on this event, one per verse, in verse order."""

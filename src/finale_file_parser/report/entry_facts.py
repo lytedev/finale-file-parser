@@ -538,6 +538,9 @@ _DURATION_NAMES: dict[NoteValue, str] = {
     NoteValue.THIRTY_SECOND: "thirty-second",
     NoteValue.SIXTY_FOURTH: "64th",
     NoteValue.ONE_TWENTY_EIGHTH: "128th",
+    NoteValue.TWO_FIFTY_SIXTH: "256th",
+    NoteValue.FIVE_TWELFTH: "512th",
+    NoteValue.ONE_THOUSAND_TWENTY_FOURTH: "1024th",
 }
 """What a musician calls each note value.
 

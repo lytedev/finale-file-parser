@@ -360,9 +360,8 @@ recognised by structure; 97 of 99 corpus files place it in a standalone stream a
 the payload out as three streams rather than four, which raises `CorruptScoreError` rather than
 guessing. The 2001–2005 era stores the same 38-byte slots **the platform's way round** and names the
 entry pool in the container, so no recognition is needed: 136 non-empty pools tile exactly, 70,428
-entries decode, and 3 documents carry a pool that is legitimately empty. Two documents fail on a
-breve (8192 EDU) or a dotted whole (6144), which `duration_from_edu` rejects — a limit of the
-note-value model, not of the container, and one a `.musx` would hit too.
+entries decode, and 3 documents carry a pool that is legitimately empty. (Two documents once failed
+on a breve and a dotted whole; `duration_from_edu` reads both now.)
 
 ### Known format facts — the `.mus` others pool
 
@@ -1061,6 +1060,21 @@ corpus reads through `read_entry` without raising.
   decomposition notated on the page (e.g. `1536` is a dotted quarter: `1024 + 512`). **Tuplet
   scaling is a separate detail, not modelled here**: a tuplet's written `dura` is the undivided
   note value, not the sounded duration after the tuplet ratio is applied.
+- **`dura` need not be a dotted note value.** Finale times an entry by whatever `dura` holds, and
+  MIDI imports and *Change Note Durations* leave lengths such as 576 (`512 + 64`), 320, 704, 2560,
+  3328 and 85 (`1024 / 12`, rounded down). The drawn value is the highest set bit plus one dot
+  per set bit directly below it, so 576 draws as an eighth and 3328 (`2048 + 1024 + 256`) as a
+  dotted half — the musx object model's `calcDurationInfoFromEdu`
+  ([permalink](https://github.com/rpatters1/musx-object-model/blob/deda69c1a8622c4268000f8c3e8df460ddef41a8/src/musx/dom/Entries.cpp#L173-L194)).
+  `Duration` keeps the stored `edu` for timing and exposes the drawn value as `notated_edu`; the IR
+  writes the drawn value as `written_duration` and carries the difference in `tuplet_ratio`, so
+  MusicXML gets the drawn `<type>` and the exact `<duration>`. Evidence from six NinSheetMusic
+  documents that were refused for such lengths: in *Ganondorf Battle* every staff of the five
+  measures holding 576/448/320/704/3328/2560-EDU entries sums, with the stored lengths and the
+  tuplets, to the same total as the reserved staff's full-measure rest (3328 or 2560 EDU). In the
+  other five the irregular entries are all 85 EDU and all **hidden** (`IGNOREBIT`): playback runs
+  padded with hidden 16- and 8-EDU rests whose chains total whole 4/4 bars (`48 × 85 + 16 = 4096`),
+  which is why the note values reach down to the 1024th. Hidden entries are not yet modelled.
 - An entry is a **rest** exactly when `numNotes == 0`; `read_entry` raises `MalformedEntryError` if
   `numNotes` disagrees with the actual number of nested `note` fields, so `is_rest ⟺ notes == ()`
   holds by construction rather than by convention.

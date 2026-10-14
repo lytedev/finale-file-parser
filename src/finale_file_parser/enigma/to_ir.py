@@ -136,7 +136,6 @@ def build_score(document: EnigmaDocument) -> Score:
                     record=record,
                     key_raw=here.key_signature,
                     transposition=transpositions.get(here.staff, _NO_TRANSPOSITION),
-                    written_edu=chain.written_edu[entnum],
                     sounded_edu=sounded[entnum],
                     lyrics=lyrics.get(entnum, ()),
                     articulations=articulations.get(entnum, ()),
@@ -378,7 +377,6 @@ def _event(
     record: Record,
     key_raw: int,
     transposition: StaffTransposition,
-    written_edu: int,
     sounded_edu: Fraction,
     lyrics: tuple[EnigmaLyric, ...] = (),
     articulations: tuple[str, ...] = (),
@@ -394,7 +392,10 @@ def _event(
         )
         for spelled in (spell_note(note, key, transposition) for note in entry.notes)
     )
-    written = Fraction(written_edu, _WHOLE_EDU)
+    # The notehead is the drawn value, which is not always the stored one: an
+    # entry stored as 576 EDU draws as an eighth (see `duration_from_edu`). The
+    # difference then travels in the ratio, so the event still sounds 576.
+    written = Fraction(entry.duration.notated_edu, _WHOLE_EDU)
     duration = Fraction(sounded_edu) / _WHOLE_EDU
     # A ratio of 1 means no tuplet; recording it anyway would make every note
     # carry a pointless <time-modification>.
