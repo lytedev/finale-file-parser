@@ -90,6 +90,11 @@ on 30,819 of 30,820 corpus entries."""
 _GRACENOTE = 0x00800000
 """eeppd.txt: set for grace notes. Surfaced as a `graceNote` field so the
 duration model gives them zero sounded time, as it does for a `.musx`."""
+_IGNOREBIT = 0x00008000
+"""eeppd.txt: "set to hide the entry". Surfaced as an `ignore` field, the name a
+`.musx` gives the same flag (the musx object model reads `<ignore>` as the
+entry's `isHidden`). In the NinSheetMusic collection it marks runs of 85-EDU
+playback notes kept in layer 4, which Finale plays but does not draw."""
 _TIE_START = 0x40000000
 _TIE_END = 0x20000000
 
@@ -303,6 +308,8 @@ def _entry_record(stream: bytes, offset: int, stored_count: int, order: ByteOrde
     if flag & _GRACENOTE:
         # Presence is the signal, as it is in EnigmaXML's `<graceNote/>`.
         fields["graceNote"] = ""
+    if flag & _IGNOREBIT:
+        fields["ignore"] = ""
     notes = tuple(_note_record(stream, o, order) for o in _note_offsets(offset, note_count))
     if notes:
         fields["note"] = notes if len(notes) > 1 else notes[0]

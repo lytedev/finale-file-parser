@@ -663,3 +663,60 @@ def test_a_rehearsal_mark_is_not_words() -> None:
     assert direction.findtext("./direction-type/rehearsal") == "A"
     assert direction.find("./direction-type/words") is None
     assert prints_as_words(mark) is False
+
+
+def _quarter(*, hidden: bool = False) -> Event:
+    return Event(
+        duration=QUARTER,
+        written_duration=QUARTER,
+        pitches=(Pitch(step="C", octave=4, alteration=0),),
+        is_hidden=hidden,
+    )
+
+
+def test_a_voice_hidden_throughout_is_left_out() -> None:
+    drawn_voice = Voice(number=1, events=(_quarter(),) * 4)
+    hidden_voice = Voice(number=4, events=(_quarter(hidden=True),) * 4)
+    measure = Measure(number=1, voices=(drawn_voice, hidden_voice))
+    tree = _tree(Score(parts=(Part(id="P1", name="Piano", measures=(measure,)),)))
+
+    voices_written = {note.findtext("voice") for note in tree.iter("note")}
+    assert voices_written == {"1"}, (
+        "a hidden voice is played by Finale but not drawn, so a player must not be asked to "
+        f"play it; the voices written were {voices_written}"
+    )
+    assert tree.find(".//backup") is None, (
+        "with the hidden voice left out there is no second voice to rewind for"
+    )
+
+
+def test_a_hidden_event_between_drawn_ones_keeps_its_time_as_a_forward() -> None:
+    tree = _tree(_score(_quarter(), _quarter(hidden=True), _quarter(), _quarter()))
+    divisions = int(tree.findtext(".//divisions", default="0"))
+    first_measure = tree.find(".//measure")
+    assert first_measure is not None, "the score must have a measure"
+    measure_children = [child.tag for child in first_measure]
+    forward_duration = int(tree.findtext(".//forward/duration", default="0"))
+
+    assert measure_children.count("note") == 3, (
+        "only the three drawn quarters may be written as notes, "
+        f"but the measure held {measure_children}"
+    )
+    assert forward_duration == divisions, (
+        "the hidden quarter must still take a quarter's time, so the notes after it start on "
+        f"beat 3; the forward was {forward_duration} divisions against {divisions} per quarter"
+    )
+
+
+def test_a_measure_with_nothing_drawn_keeps_its_length_as_one_forward() -> None:
+    hidden_voice = Voice(number=1, events=(_quarter(hidden=True),) * 4)
+    measure = Measure(number=1, voices=(hidden_voice,))
+    tree = _tree(Score(parts=(Part(id="P1", name="Piano", measures=(measure,)),)))
+    divisions = int(tree.findtext(".//divisions", default="0"))
+    forward_durations = [int(f.findtext("duration", default="0")) for f in tree.iter("forward")]
+
+    assert tree.find(".//note") is None, "no hidden note may be written"
+    assert forward_durations == [4 * divisions], (
+        "a measure whose every event is hidden must still last its four quarters, as a single "
+        f"forward, but the forwards were {forward_durations} at {divisions} divisions per quarter"
+    )

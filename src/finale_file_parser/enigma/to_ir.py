@@ -347,19 +347,32 @@ def _apply_beams(cell: _Cell) -> None:
     """
     for layer, events in cell.events_by_layer.items():
         flags = cell.starts_beam[layer]
-        notes = [
-            BeamedNote(
-                written_duration=event.written_duration,
-                dots=event.dots,
-                is_rest=event.is_rest,
-                starts_group=starts,
+        # A hidden event is not drawn, so it cannot carry a beam -- and counting
+        # it would leave a drawn neighbour holding the "continue" or "end" of a
+        # group whose other half is never written.
+        # A group a hidden event starts is started by the next drawn one instead.
+        drawn_positions: list[int] = []
+        notes: list[BeamedNote] = []
+        hidden_event_started_a_group = False
+        for index, event in enumerate(events):
+            if event.is_hidden:
+                hidden_event_started_a_group = hidden_event_started_a_group or flags[index]
+                continue
+            drawn_positions.append(index)
+            notes.append(
+                BeamedNote(
+                    written_duration=event.written_duration,
+                    dots=event.dots,
+                    is_rest=event.is_rest,
+                    starts_group=flags[index] or hidden_event_started_a_group,
+                )
             )
-            for event, starts in zip(events, flags, strict=True)
-        ]
-        cell.events_by_layer[layer] = [
-            replace(event, beams=tuple(beams)) if beams else event
-            for event, beams in zip(events, beams_for(notes), strict=True)
-        ]
+            hidden_event_started_a_group = False
+        beamed_events = list(events)
+        for index, beams in zip(drawn_positions, beams_for(notes), strict=True):
+            if beams:
+                beamed_events[index] = replace(events[index], beams=tuple(beams))
+        cell.events_by_layer[layer] = beamed_events
 
 
 def _transpositions(document: EnigmaDocument) -> dict[int, StaffTransposition]:
@@ -408,6 +421,7 @@ def _event(
         tie_end=any(note.tie_end for note in entry.notes),
         tuplet_ratio=ratio,
         is_grace="graceNote" in record.fields,
+        is_hidden="ignore" in record.fields,
         # Verse order, so a multi-verse note emits its lyrics top to bottom.
         lyrics=tuple(
             Lyric(

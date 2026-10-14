@@ -123,6 +123,14 @@ class Event:
     """Sounded over written, when this event is inside a tuplet. 2/3 for a
     triplet. None outside one."""
 
+    is_hidden: bool = False
+    """Finale plays this event but does not draw it.
+
+    Kept in the IR because it is still music the file holds and still takes its
+    time in the measure. An exporter writing what a player reads leaves it out
+    and keeps its time, as the MusicXML one does with `<forward>`.
+    """
+
     lyrics: tuple[Lyric, ...] = ()
     """Syllables sung on this event, one per verse, in verse order."""
 

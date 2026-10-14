@@ -164,6 +164,22 @@ def test_entry_spanning_two_slots_reads_all_notes(tmp_path: Path) -> None:
     assert [n.harm_lev for n in entry.notes] == [1, 2, 3]
 
 
+def test_the_hide_bit_is_surfaced_as_ignore(tmp_path: Path) -> None:
+    ignore_bit = 0x00008000
+    hidden = _entry_slot(1, dura=1024, flag=SETBIT | NOTEBIT | ignore_bit, notes=[(0x0060, SETBIT)])
+    path = tmp_path / "hidden.mus"
+    path.write_bytes(_mus_file(hidden + _pool(150)))
+
+    records = read_mus_entry_records(path)
+
+    assert "ignore" in records[0].fields, (
+        "eeppd.txt's IGNOREBIT hides the entry, and a .musx names the same flag <ignore/>"
+    )
+    assert all("ignore" not in record.fields for record in records[1:]), (
+        "entries without the bit must not be marked hidden"
+    )
+
+
 def test_rejects_a_payload_with_no_entry_pool(tmp_path: Path) -> None:
     path = tmp_path / "none.mus"
     path.write_bytes(_mus_file(b"\x01\x02\x03\x04" * 2000))

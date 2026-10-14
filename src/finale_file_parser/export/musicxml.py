@@ -300,24 +300,61 @@ def _append_measure(
         ET.SubElement(ET.SubElement(direction, "direction-type"), "words").text = words
     _append_expressions(element, measure)
 
-    for index, voice in enumerate(measure.voices):
+    voices_with_something_drawn = [
+        voice for voice in measure.voices if any(not event.is_hidden for event in voice.events)
+    ]
+    for index, voice in enumerate(voices_with_something_drawn):
         if index:
             # Voices are written in sequence, so the cursor must be rewound to the
             # start of the measure before each one after the first.
             spent = sum(
                 (
                     _duration_in_divisions(e.duration, divisions)
-                    for e in measure.voices[index - 1].events
+                    for e in voices_with_something_drawn[index - 1].events
                 ),
                 0,
             )
             if spent:
                 backup = ET.SubElement(element, "backup")
                 ET.SubElement(backup, "duration").text = str(spent)
+        hidden_time_not_yet_written = 0
         for event in voice.events:
+            if event.is_hidden:
+                hidden_time_not_yet_written += _duration_in_divisions(event.duration, divisions)
+                continue
+            _append_forward(element, voice, hidden_time_not_yet_written)
+            hidden_time_not_yet_written = 0
             _append_event(element, event, voice, divisions)
+        _append_forward(element, voice, hidden_time_not_yet_written)
+    if measure.voices and not voices_with_something_drawn:
+        # Nothing here is drawn, but the measure still lasts as long as its
+        # longest voice; a measure with no notes and no forward has no length.
+        _append_forward(
+            element,
+            measure.voices[0],
+            max(
+                sum(_duration_in_divisions(e.duration, divisions) for e in voice.events)
+                for voice in measure.voices
+            ),
+        )
 
     _append_barline(element, measure, "right")
+
+
+def _append_forward(element: ET.Element, voice: Voice, duration: int) -> None:
+    """Advance past hidden events without drawing them.
+
+    A hidden event is not on the page, so a player must not be asked to play it,
+    but it still takes its time: the visible notes after it start where Finale
+    puts them only if that time is kept. A voice that is hidden throughout is
+    left out instead, unless nothing in the measure is drawn, when one forward
+    keeps the measure's length.
+    """
+    if not duration:
+        return
+    forward = ET.SubElement(element, "forward")
+    ET.SubElement(forward, "duration").text = str(duration)
+    ET.SubElement(forward, "voice").text = str(voice.number)
 
 
 def _append_barline(element: ET.Element, measure: Measure, location: str) -> None:

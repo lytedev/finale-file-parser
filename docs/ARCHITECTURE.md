@@ -1061,6 +1061,14 @@ corpus reads through `read_entry` without raising.
   decomposition notated on the page (e.g. `1536` is a dotted quarter: `1024 + 512`). **Tuplet
   scaling is a separate detail, not modelled here**: a tuplet's written `dura` is the undivided
   note value, not the sounded duration after the tuplet ratio is applied.
+- **`IGNOREBIT` (0x00008000) hides an entry**, as `eeppd.txt` says; a `.musx` writes the same flag
+  as `<ignore/>`, which is the field the `.mus` reader emits. The entry is still music Finale plays,
+  so the IR keeps it, with its time, as `Event.is_hidden`; it draws no beam, and a group it would
+  have started is started by the next drawn note. The MusicXML exporter leaves it out: a gap between
+  drawn notes becomes a `<forward>`, a voice hidden throughout is omitted, and a measure with nothing
+  drawn keeps its length as one `<forward>`. Across the 254 NinSheetMusic documents, once all of
+  them convert, 62 hide something — 1,470 notes and 467 rests — most visibly the 85-EDU playback
+  runs kept whole in layer 4 of the Undertale files.
 - An entry is a **rest** exactly when `numNotes == 0`; `read_entry` raises `MalformedEntryError` if
   `numNotes` disagrees with the actual number of nested `note` fields, so `is_rest ⟺ notes == ()`
   holds by construction rather than by convention.
