@@ -396,9 +396,13 @@ def _event(
     )
     written = Fraction(written_edu, _WHOLE_EDU)
     duration = Fraction(sounded_edu) / _WHOLE_EDU
+    # A grace note sounds for no time. MusicXML says that with `<grace/>` and no
+    # `<duration>`, and a ratio of zero would add a `<time-modification>`
+    # claiming "1 in the time of 0", which no reader can scale by.
+    takes_no_time = "graceNote" in record.fields
     # A ratio of 1 means no tuplet; recording it anyway would make every note
     # carry a pointless <time-modification>.
-    ratio = duration / written if written and duration != written else None
+    ratio = duration / written if written and not takes_no_time and duration != written else None
     return Event(
         duration=duration,
         written_duration=written,
@@ -407,7 +411,7 @@ def _event(
         tie_start=any(note.tie_start for note in entry.notes),
         tie_end=any(note.tie_end for note in entry.notes),
         tuplet_ratio=ratio,
-        is_grace="graceNote" in record.fields,
+        is_grace=takes_no_time,
         # Verse order, so a multi-verse note emits its lyrics top to bottom.
         lyrics=tuple(
             Lyric(

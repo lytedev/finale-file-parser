@@ -121,7 +121,7 @@ class Event:
     """
     tuplet_ratio: Fraction | None = None
     """Sounded over written, when this event is inside a tuplet. 2/3 for a
-    triplet. None outside one."""
+    triplet. None outside one, and for a grace note."""
 
     lyrics: tuple[Lyric, ...] = ()
     """Syllables sung on this event, one per verse, in verse order."""
