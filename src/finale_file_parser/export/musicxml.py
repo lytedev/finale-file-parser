@@ -10,6 +10,7 @@ orderings, and is validated against the official W3C schema in the tests.
 from __future__ import annotations
 
 import math
+import re
 import xml.etree.ElementTree as ET
 from fractions import Fraction
 
@@ -77,9 +78,32 @@ def to_musicxml(score: Score) -> bytes:
     for part in score.parts:
         _append_part(root, part)
 
+    _remove_characters_xml_forbids(root)
     ET.indent(root, space="  ")
     body = ET.tostring(root, encoding="unicode")
     return f'<?xml version="1.0" encoding="UTF-8"?>\n{_DOCTYPE}\n{body}\n'.encode()
+
+
+_CHARACTERS_XML_FORBIDS = re.compile("[\x00-\x08\x0b\x0c\x0e-\x1f\ufffe\uffff]")
+"""C0 controls other than tab, newline and carriage return, and the two
+non-characters: XML 1.0 forbids them anywhere in a document
+(https://www.w3.org/TR/2008/REC-xml-20081126/#charsets), and `ElementTree`
+writes them anyway, producing a file no parser will open.
+
+Text reaches here from a file's own markup, and a reader that does not fully
+understand that markup can leave argument bytes behind -- which is how 20
+exports were once not well-formed. Removing the characters keeps every word;
+leaving them loses the whole document."""
+
+
+def _remove_characters_xml_forbids(root: ET.Element) -> None:
+    for element in root.iter():
+        if element.text:
+            element.text = _CHARACTERS_XML_FORBIDS.sub("", element.text)
+        if element.tail:
+            element.tail = _CHARACTERS_XML_FORBIDS.sub("", element.tail)
+        for name, value in element.attrib.items():
+            element.set(name, _CHARACTERS_XML_FORBIDS.sub("", value))
 
 
 def _append_part_list(root: ET.Element, score: Score) -> None:

@@ -663,3 +663,16 @@ def test_a_rehearsal_mark_is_not_words() -> None:
     assert direction.findtext("./direction-type/rehearsal") == "A"
     assert direction.find("./direction-type/words") is None
     assert prints_as_words(mark) is False
+
+
+def test_characters_xml_forbids_are_removed_and_every_word_kept() -> None:
+    """Leftover markup bytes in a marking must not make the whole document unreadable."""
+    marking = Expression(text="\x01\x01\x01\x04Tempo di Bolero q\x01 = 60", category="tempoMarks")
+    rest = Event(duration=Fraction(1), written_duration=Fraction(1))
+    document = to_musicxml(_score(rest, expressions=(marking,))).decode()
+
+    words = DET.fromstring(document).findtext(".//words")
+    assert words == "Tempo di Bolero q = 60", (
+        "XML 1.0 forbids C0 control characters, so they must be removed while every "
+        f"printable character survives, but the words came out as {words!r}"
+    )

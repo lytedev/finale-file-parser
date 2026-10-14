@@ -152,3 +152,39 @@ def test_the_latin_1_form_of_the_same_markup_still_strips() -> None:
 def test_a_caret_in_real_text_survives() -> None:
     """The pattern must stay narrow: five characters of opcode, not any caret."""
     assert plain_text("2^3 and up") == "2^3 and up"
+
+
+TEMPO_MARK_WITH_TWO_ARGUMENT_COMMANDS = (
+    "^¤\x01\x01\x01\x03^\x86\x01\x01\x01\x0f^\x84\x01\x01\x01\x02"
+    "^\x81\x01\x01\x01\x01\x01\x01\x01\x04Tempo di Bolero  "
+    "^¥\x01\x01\x01\x06^\x86\x01\x01\x01\r^\x84\x01\x01\x01\x01q"
+    "^\x81\x01\x01\x01\x01\x01\x01\x01\x01 = 60"
+)
+"""A tempo mark's shape as a `.mus` stores it: fonts, sizes and styles around
+the words and the metronome glyph, with the two-argument 0x81 command on each
+side of them."""
+
+
+def test_a_two_argument_command_is_stripped_whole() -> None:
+    printed = plain_text(TEMPO_MARK_WITH_TWO_ARGUMENT_COMMANDS)
+    assert printed == "Tempo di Bolero  q = 60", (
+        "the 0x81 command carries two four-byte arguments, and leaving the second in the "
+        f"text puts bytes XML forbids into the export; the text came out as {printed!r}"
+    )
+
+
+def test_a_two_argument_command_decoded_as_a_replacement_character_is_stripped_whole() -> None:
+    """cp1252 leaves 0x81 undefined, so a cp1252 decode turns the opcode into U+FFFD."""
+    markup = TEMPO_MARK_WITH_TWO_ARGUMENT_COMMANDS.replace("\x81", "�")
+    printed = plain_text(markup)
+    assert printed == "Tempo di Bolero  q = 60", (
+        f"the U+FFFD form of the 0x81 command must strip the same way, but gave {printed!r}"
+    )
+
+
+def test_text_that_follows_a_one_argument_command_is_not_taken_as_a_second_argument() -> None:
+    printed = plain_text("^\x84\x01\x01\x01\x01Forte")
+    assert printed == "Forte", (
+        "a second argument is taken only when four more argument bytes follow, so the "
+        f"word after a one-argument command must survive, but gave {printed!r}"
+    )

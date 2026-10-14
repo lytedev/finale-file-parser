@@ -28,19 +28,37 @@ _MARKUP = re.compile(r"\^[A-Za-z]+\([^)]*\)")
 """An Enigma text command as EnigmaXML writes it: a caret, a name, and
 parenthesised arguments."""
 
-_BINARY_MARKUP = re.compile(r"\^[^\x00-\x7f].{4}", re.DOTALL)
+_BINARY_MARKUP = re.compile(r"\^[^\x00-\x7f](?:[\x01-\x10]{4})+")
 """The same command in the dialect a `.mus` text stream uses: a caret, a
-high-byte opcode, and four argument bytes.
+high-byte opcode, and one or more four-byte arguments.
 
-A `.mus` writes `^\x85\x01\x01\x02\x08` where a `.musx` writes `^size(13)`.
-Both are commands rather than content, so both are stripped. The pattern is
-deliberately narrow -- caret, one non-ASCII character, then exactly four -- so a
-caret in real lyric or title text is left alone.
+**Each argument byte is a hex digit plus one**, so it is always 0x01-0x10 and
+never a NUL that would end the string: `^\x86\x01\x01\x01\r` holds 0x000C = 12.
+Across the 254 NinSheetMusic `.mus` files all 254,328 argument bytes are in that
+range, and the decoded values look like what the commands hold: `^\x86` is 12,
+24, 14 or 16 in 19,350 of 19,421 commands, plausible point sizes, and `^\x84`
+is 0, 1 or 2 in 19,118 of 19,285, matching Finale's plain, bold and italic text
+effects -- `subito` carries 2 and `Adagio` 1. Only the text is kept, so none of
+these values is used.
 
-**Any non-ASCII, not `\u0080-\u00ff`.** The opcode is a byte above 0x7F, but
-what it decodes *to* depends on the encoding: cp1252 maps 0x85, 0x86 and 0x84 to
-U+2026, U+2020 and U+201E, all outside Latin-1. Matching the Latin-1 range left
-that markup in the text, which is why a `.mus` staff name came back as
+**Most opcodes take one argument; 0x81 takes two.** Treating every command as
+four bytes long left the second argument of 74 `^\x81` commands in the text --
+raw 0x01 and 0x04 bytes, which XML forbids, so 20 exported files were not
+well-formed. What 0x81 means is not known: it appears only in tempo marks, as
+(0, 3) before the words and (0, 0) after the metronome glyph. A `.mus` decoded
+as cp1252 turns that byte into U+FFFD, since cp1252 leaves 0x81 undefined, and
+the pattern matches it the same way. Taking arguments while the bytes stay in
+range handles both lengths without a table of opcodes, and no literal text in
+the collection contains a byte in that range for it to swallow.
+
+Both are commands rather than content, so both are stripped. A caret in real
+lyric or title text is left alone: it is not followed by a non-ASCII opcode and
+an in-range argument.
+
+**Any non-ASCII opcode, not `\u0080-\u00ff`.** What the opcode byte decodes
+*to* depends on the encoding: cp1252 maps 0x85, 0x86 and 0x84 to U+2026, U+2020
+and U+201E, all outside Latin-1. Matching the Latin-1 range left that markup in
+the text, which is why a `.mus` staff name came back as
 `^\u2026\x01\x01\x01\n^\u2020\x01\x01\x01\rScore` rather than `Score`.
 """
 

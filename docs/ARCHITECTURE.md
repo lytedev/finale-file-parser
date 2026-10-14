@@ -976,7 +976,15 @@ text is ETF tagged text (`^verse(1)…^end`) in the text stream rather than a bi
 six same-content pairs whose `.musx` carries lyrics, all 1,794 events match exactly.
 
 `plain_text` now strips both markup dialects: EnigmaXML's `^name(args)` and the binary
-`^<opcode><4 bytes>` a `.mus` uses.
+`^<opcode><arguments>` a `.mus` uses. **Each binary argument is four bytes, each a hex digit plus
+one** (0x01–0x10, so never a NUL): `^\x86\x01\x01\x01\r` holds 12. All 254,328 argument bytes
+in the 254 NinSheetMusic `.mus` files are in that range; `^\x86` holds 12, 24, 14 or 16 in 19,350
+of 19,421 commands and `^\x84` holds 0, 1 or 2 in 19,118 of 19,285, consistent with point size and
+plain/bold/italic. **Opcode 0x81 takes two arguments** — 74 occurrences, only in tempo marks, (0, 3)
+before the words and (0, 0) after the metronome glyph; its meaning is not known. Reading it as one
+argument left raw 0x01/0x04 bytes in 20 exports, which made them invalid XML. The MusicXML exporter
+now also removes any character XML 1.0 forbids, so markup not yet understood can cost a stray
+character but never the document.
 
 ### Known format facts — EnigmaXML structure
 
