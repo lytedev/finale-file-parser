@@ -164,6 +164,42 @@ def test_entry_spanning_two_slots_reads_all_notes(tmp_path: Path) -> None:
     assert [n.harm_lev for n in entry.notes] == [1, 2, 3]
 
 
+def _vacant_slot_keeping_setbit(entnum: int) -> bytes:
+    return _entry_slot(entnum, dura=0, flag=SETBIT, notes=[])
+
+
+def test_a_vacant_slot_that_keeps_setbit_is_not_read_as_an_entry(tmp_path: Path) -> None:
+    """The 2011/2012 form of a vacant slot keeps SETBIT; it is still no entry."""
+    vacant_entry_number = 9_000
+    path = tmp_path / "vacant.mus"
+    path.write_bytes(
+        _mus_file(_pool(150) + _vacant_slot_keeping_setbit(vacant_entry_number) + _pool(1))
+    )
+
+    entry_numbers = [entry.entnum for entry in read_mus_entries(path)]
+
+    assert vacant_entry_number not in entry_numbers, (
+        f"entry {vacant_entry_number} has no link, duration or note, so it must be skipped, "
+        "not read as a zero-length entry"
+    )
+    assert len(entry_numbers) == 151, (
+        f"every occupied slot around the vacant one must still be read, but {len(entry_numbers)} "
+        "entries came back instead of 151"
+    )
+
+
+def test_a_zero_length_slot_that_is_linked_is_still_refused(tmp_path: Path) -> None:
+    """Only a slot with nothing in it is vacant; a linked entry of no length is corrupt."""
+    linked_zero_length_entry = bytearray(_vacant_slot_keeping_setbit(9_000))
+    next_entry_link_bytes = slice(10, 14)
+    linked_zero_length_entry[next_entry_link_bytes] = (1).to_bytes(4, "little")
+    path = tmp_path / "zero.mus"
+    path.write_bytes(_mus_file(_pool(150) + bytes(linked_zero_length_entry)))
+
+    with pytest.raises(CorruptScoreError, match="entry 9000: bad duration 0"):
+        read_mus_entries(path)
+
+
 def test_rejects_a_payload_with_no_entry_pool(tmp_path: Path) -> None:
     path = tmp_path / "none.mus"
     path.write_bytes(_mus_file(b"\x01\x02\x03\x04" * 2000))
@@ -171,7 +207,7 @@ def test_rejects_a_payload_with_no_entry_pool(tmp_path: Path) -> None:
         read_mus_entries(path)
 
 
-def _vacant_slot(entnum: int) -> bytes:
+def _vacant_slot_zeroed_past_entnum(entnum: int) -> bytes:
     """A deleted entry's slot: its entnum, then 34 zero bytes."""
     return entnum.to_bytes(4, "little") + b"\x00" * (SLOT - 4)
 
@@ -184,7 +220,13 @@ def test_vacant_slots_left_by_deleted_entries_are_skipped(tmp_path: Path) -> Non
     """
     live = _entry_slot(1, dura=1024, flag=SETBIT | NOTEBIT, notes=[(0x0060, SETBIT)])
     later = _entry_slot(4, dura=512, flag=SETBIT | NOTEBIT, notes=[(0x0010, SETBIT)])
-    pool = live + _vacant_slot(2) + _vacant_slot(3) + later + _pool(150)
+    pool = (
+        live
+        + _vacant_slot_zeroed_past_entnum(2)
+        + _vacant_slot_zeroed_past_entnum(3)
+        + later
+        + _pool(150)
+    )
     path = tmp_path / "vacant.mus"
     path.write_bytes(_mus_file(pool))
     entries = read_mus_entries(path)
@@ -204,7 +246,7 @@ def test_a_slot_with_any_byte_set_past_its_entnum_is_not_vacant(tmp_path: Path) 
     entnum_index_prev_next = (2).to_bytes(4, "little") + b"\x00" * 10
     stray_duration = entnum_index_prev_next + (1024).to_bytes(2, "little")
     almost_vacant = stray_duration.ljust(SLOT, b"\x00")
-    pool = _vacant_slot(1) + almost_vacant + _pool(150)
+    pool = _vacant_slot_zeroed_past_entnum(1) + almost_vacant + _pool(150)
     path = tmp_path / "almost.mus"
     path.write_bytes(_mus_file(pool))
     with pytest.raises(CorruptScoreError, match="no recognisable entry pool"):
@@ -213,7 +255,7 @@ def test_a_slot_with_any_byte_set_past_its_entnum_is_not_vacant(tmp_path: Path) 
 
 def test_a_pool_of_only_vacant_slots_is_not_sniffed_as_the_entry_pool(tmp_path: Path) -> None:
     """Zero-filled bytes tile as vacant slots, which is too little evidence to claim a pool."""
-    pool = b"".join(_vacant_slot(entnum) for entnum in range(1, 200))
+    pool = b"".join(_vacant_slot_zeroed_past_entnum(entnum) for entnum in range(1, 200))
     path = tmp_path / "all_vacant.mus"
     path.write_bytes(_mus_file(pool))
     with pytest.raises(CorruptScoreError, match="no recognisable entry pool"):

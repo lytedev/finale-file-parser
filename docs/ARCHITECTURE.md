@@ -326,12 +326,15 @@ Three details that are easy to get wrong, each caught by comparing against groun
   *real* note record for its vertical position. Using `NOTEBIT` misclassifies 74 corpus entries.
 - **Notes do not run at a fixed stride from the entry start.** Note 3 onward lives in the next slot,
   after that slot's own 6-byte tag.
-- **A slot can be vacant.** A deleted entry may keep its slot with only the entnum set and the other
-  34 bytes zero — no `SETBIT`, duration 0. It stands for no entry and is skipped
-  (`mus_entries._is_vacant_slot`). Seen in 14 Finale 2010 documents outside the curated corpus, 912
-  vacant slots in all; none is named by a live entry's `prev`/`next` or by any `frameSpec`
-  `startEntry`/`endEntry`. Before this was recognised those documents raised "no recognisable entry
-  pool". The sniffer still demands one live entry, so zero-filled bytes alone never claim the pool.
+- **A slot can be vacant.** A deleted entry may keep its slot with only the entnum set and the rest
+  zeroed — slot index, `prev`/`next`, duration 0, note count — and the flags either zero or just
+  `SETBIT`, depending on the writer. It stands for no entry and is skipped
+  (`mus_entries._is_vacant_slot`). Seen without `SETBIT` in 14 Finale 2010 documents outside the
+  curated corpus (912 slots, which made them raise "no recognisable entry pool"), and with it in two
+  NinSheetMusic documents (940 of 2,798 slots, which made them raise "bad duration 0"). The entnums
+  come in runs, as a deleted passage would, and none is named by a live entry's `prev`/`next` or by
+  any `frameSpec` `startEntry`/`endEntry`. A zero-length slot that *is* linked is still refused, and
+  the sniffer still demands one live entry, so zero-filled bytes alone never claim the pool.
 
 Verified across every 2011/2012 `.mus` with a confirmed `.musx` pair — **30,420 entries**: entry
 numbers, durations and rest flags all agree exactly, and note pitches agree on every document without

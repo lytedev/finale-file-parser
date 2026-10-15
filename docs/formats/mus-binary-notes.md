@@ -42,6 +42,11 @@ the slot instead of leaving it stale.
 entry. All 14 documents now read their entries, and each proceeds to the next stage (at the time of
 writing, all 14 then stop at a `gfhold` naming a measure with no `measSpec`, a separate problem).
 
+**A second form.** Two NinSheetMusic documents (Finale 2011 banner) hold vacant slots of the same
+shape except that the flags keep `SETBIT` — 940 of their 2,798 slots. Those tile as ordinary
+one-slot entries and failed later instead, on "bad duration 0". `_is_vacant_slot` accepts a flag
+word of either 0 or exactly `SETBIT`; every other byte past the entnum must be zero in both forms.
+
 
 Both pools separate sections with two-byte filler words. `0x0000` was always skipped; **`0xFFFF` is
 filler too**, and missing that was what stopped the walk on seven documents.

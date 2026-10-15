@@ -29,9 +29,9 @@ First slot (index 0):
 Continuation slots (index > 0) carry only notes, five per slot, from offset 6.
 
 A **vacant slot** keeps its entnum and zeroes everything after it -- slot
-index, links, duration, flags, count. It is a deleted entry that Finale left in
-place rather than compacting the pool, and it stands for no entry at all; see
-`_is_vacant_slot`.
+index, links, duration, count, and the flags except, in some writers, SETBIT.
+It is a deleted entry that Finale left in place rather than compacting the
+pool, and it stands for no entry at all; see `_is_vacant_slot`.
 
 A note record is 6 bytes: TCD (2) then note flag (4). The TCD's upper twelve bits
 are the pitch (signed) and its low nibble the alteration -- stored **sign and
@@ -227,22 +227,38 @@ def _slot_span(note_count: int) -> int:
     return 1 + -(-overflow // _CONT_SLOT_NOTES)  # ceiling division
 
 
-def _is_vacant_slot(stream: bytes, position: int) -> bool:
+_ENTRY_FLAG_OFFSET = 18
+_ENTRY_FLAG_SIZE = 4
+_FLAGS_A_VACANT_SLOT_MAY_CARRY = frozenset({0, _SETBIT})
+
+
+def _is_vacant_slot(stream: bytes, position: int, order: ByteOrder) -> bool:
     """Is the slot at `position` a deleted entry, holding nothing but its entnum?
 
     Finale does not always compact the pool when entries are deleted: it can
-    keep the slot, entnum and all, and zero the other 34 bytes. Such a slot has
-    no SETBIT, which `eeppd.txt` says every legal entry carries, and a duration
-    of 0, which no entry can have -- so it is not an entry that happens to be
-    empty but the absence of one, and it is skipped rather than read.
+    keep the slot, entnum and all, and zero the rest. What is zeroed depends on
+    the writer, and both forms occur:
 
-    Seen in 14 Finale 2010 documents of a 51-document set by one author, 1 to
-    225 vacant slots each, 912 in all. No live entry's `prev` or `next` and
-    no `frameSpec`'s `startEntry` or `endEntry` names a vacant entnum, so
-    dropping them loses nothing a frame can reach. A slot carrying any nonzero
-    byte past its entnum is not vacant and is held to the full tests.
+    * every one of the 34 bytes past the entnum, SETBIT included -- 912 slots in
+      14 Finale 2010 documents of a 51-document set by one author;
+    * every byte but SETBIT -- 940 of the 2,798 slots in two NinSheetMusic
+      documents.
+
+    Either way there is no slot index, no `prev`/`next` link, a duration of 0
+    (which no entry can have) and no notes. The entnums come in runs (190-193,
+    214-217, ...), as a deleted passage would, and no live entry's `prev` or
+    `next` and no `frameSpec`'s `startEntry` or `endEntry` names one, so
+    skipping them loses nothing a frame can reach. A slot carrying any other
+    nonzero byte past its entnum is not vacant and is held to the full tests --
+    a zero-length entry that is linked into a chain is refused as corrupt.
     """
-    return not any(stream[position + 4 : position + _SLOT])
+    flag_at = position + _ENTRY_FLAG_OFFSET
+    flag_after = flag_at + _ENTRY_FLAG_SIZE
+    flag_is_empty_or_only_setbit = _u32(stream, flag_at, order) in _FLAGS_A_VACANT_SLOT_MAY_CARRY
+    everything_else_past_the_entnum = (
+        stream[position + 4 : flag_at] + stream[flag_after : position + _SLOT]
+    )
+    return flag_is_empty_or_only_setbit and not any(everything_else_past_the_entnum)
 
 
 def _tiles_as_entry_slots(stream: bytes, order: ByteOrder) -> bool:
@@ -256,7 +272,7 @@ def _tiles_as_entry_slots(stream: bytes, order: ByteOrder) -> bool:
         return False
     position = 0
     while position + _SLOT <= len(stream):
-        if _is_vacant_slot(stream, position):
+        if _is_vacant_slot(stream, position, order):
             position += _SLOT
             continue
         if _u16(stream, position + 4, order) != 0:
@@ -270,9 +286,9 @@ def _tiles_as_entry_slots(stream: bytes, order: ByteOrder) -> bool:
     return position == len(stream)
 
 
-def _holds_a_live_entry(stream: bytes) -> bool:
+def _holds_a_live_entry(stream: bytes, order: ByteOrder) -> bool:
     return any(
-        not _is_vacant_slot(stream, position)
+        not _is_vacant_slot(stream, position, order)
         for position in range(0, len(stream) - _SLOT + 1, _SLOT)
     )
 
@@ -295,14 +311,14 @@ def _looks_like_entry_pool(stream: bytes, order: ByteOrder = "little") -> bool:
     length happens to be a multiple of 38 -- would otherwise tile, and a sniffer
     must not claim a pool on that little evidence.
     """
-    return _tiles_as_entry_slots(stream, order) and _holds_a_live_entry(stream)
+    return _tiles_as_entry_slots(stream, order) and _holds_a_live_entry(stream, order)
 
 
 def _read_pool(stream: bytes, order: ByteOrder) -> list[Record]:
     records: list[Record] = []
     position = 0
     while position + _SLOT <= len(stream):
-        if _is_vacant_slot(stream, position):
+        if _is_vacant_slot(stream, position, order):
             position += _SLOT
             continue
         stored_count = _u16(stream, position + 24, order)
